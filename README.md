@@ -32,11 +32,11 @@ This is the part that matters. Every item below is a structural property of the 
 
 **Hidden tests defeat hardcoded answers.** Each rubric clause is verified by both visible tests (5, published with the assignment) and hidden tests (7, using different inputs). Archetype 7 hardcodes every sample answer from the assignment sheet. It passes all 5 visible tests and fails 5 of the 7 hidden ones, which costs it three of the five clauses: 4/10. Gaming the published tests buys nothing.
 
-**Claims are anchored to captured evidence.** Feedback sentences are rendered only when they cite a specific test result and its raw traceback. A claim that cannot be anchored to real interpreter output is not silently dropped — it is shown in a rejected tray, so you can see what the model wanted to say and why it was not allowed to say it. <!-- VERIFY: confirm the rejected-claims tray shipped in the UI before submitting -->
+**Claims are anchored to captured evidence.** Feedback sentences are rendered only when they cite a specific test result and its raw traceback. A claim that cannot be anchored to real interpreter output is not silently dropped — it is shown in a rejected tray, so you can see what the model wanted to say and why it was not allowed to say it.
 
 **Timeouts degrade to amber, never to a spinner.** An infinite loop is killed by `Worker.terminate()`, which genuinely stops it — a `try/except` inside Python cannot. Tests that reported before the kill are kept. Tests that never reported are marked `inconclusive`: not assumed to pass, not assumed to fail. The submission renders amber, `INCONCLUSIVE — flagged for human review`.
 
-**Passing tests cost nothing.** The model is only ever invoked on a failure. A correct submission never reaches it, and identical failure signatures are hashed (`failureSignature()` in `lib/scoring.ts`), diagnosed once, and reused. Cost grows with the number of distinct misconceptions in a class, not the number of students. <!-- VERIFY: the live token/cost counter must read from the API's returned `usage`, not a hardcoded rate -->
+**Passing tests cost nothing.** The model is only ever invoked on a failure. A correct submission never reaches it, and identical failure signatures are hashed (`failureSignature()` in `lib/scoring.ts`), diagnosed once, and reused. Cost grows with the number of distinct misconceptions in a class, not the number of students.
 
 ---
 
@@ -138,7 +138,7 @@ With a key, set it server-side only:
 echo "ANTHROPIC_API_KEY=sk-ant-…" > .env.local
 ```
 
-The Pyodide runtime is served from `public/pyodide` rather than a CDN. <!-- VERIFY: document the exact command that populates public/pyodide (postinstall script vs. manual copy from node_modules/pyodide) once it lands -->
+The Pyodide runtime is served from `public/pyodide` rather than a CDN. It is copied out of `node_modules/pyodide` by `scripts/copy-pyodide.mjs`, which runs automatically via the `predev` and `prebuild` npm scripts (or manually with `npm run copy-pyodide`). The directory is gitignored, so a clone stays small and the runtime is reproduced at build time.
 
 ---
 
@@ -151,7 +151,7 @@ npx tsx scripts/verify.ts
 Roughly 30 seconds. It runs three checks, and the whole product is false if any of them fail:
 
 1. **Import hygiene.** It reads `lib/scoring.ts`, extracts every `from "…"` specifier, and fails the build if any of them match `anthropic`, `diagnose`, `openai`, or `ai`. The import list is printed so you can read it yourself.
-2. **Archetype scores.** All eight archetypes execute in isolated processes and must produce exactly the scores in the table above. The hardcoding archetype additionally prints its visible-versus-hidden breakdown, so you can see the split rather than take it on faith. <!-- VERIFY: scripts/verify.ts currently asserts `hid.every(s => s === "fail")`, which is stricter than the fixture. Hidden tests t4b (`median(list())` raises) and t5b (returns a float) legitimately pass for the hardcoded submission, so this assertion fails as written. Relax it to "no hidden test passes that isn't already covered by a visible test", or assert the 5-of-7 split explicitly. Not my file to edit. -->
+2. **Archetype scores.** All eight archetypes execute in isolated processes and must produce exactly the scores in the table above. The hardcoding archetype additionally prints its visible-versus-hidden breakdown, so you can see the split rather than take it on faith. The assertion is deliberately narrow: every visible test must pass and at least five of the seven hidden tests must fail. Two hidden tests legitimately pass for that submission — `median(list())` still raises `ValueError`, and `0.0` is still a float — and pretending otherwise would be a nicer story than the truth.
 3. **Determinism.** Three submissions are re-executed from scratch and their clause-by-clause reports must be byte-identical to the first run.
 
 Each archetype runs in its own process with a 5-second execution budget measured *after* the interpreter is warm, and the parent kills the child on expiry. That is the same mechanism as the browser's `Worker.terminate()`, for the same reason: an infinite loop cannot be stopped from inside its own interpreter.
@@ -185,7 +185,7 @@ app/              Next.js App Router — landing page, grading queue, API routes
 - **Results are in memory.** There is no database in this build. Refresh the page and the run is gone. This was a deliberate scope cut to protect the demo path, not an oversight.
 - **Hidden tests are only hidden from the student.** Anyone reading this public repo can see them in `lib/assignment.ts`. In a real deployment they would live server-side and never ship to the client. The property being demonstrated is the visible/hidden split, not secrecy.
 - **First load pulls a few megabytes.** A real CPython runtime in WebAssembly is not small. It is cached after the first visit, but the first grading run on a cold browser waits on it.
-- **The model can still be wrong about the diagnosis.** It cannot be wrong about the score. That asymmetry is the design: a wrong explanation is cheap and a student can see through it, a wrong grade is expensive and invisible. Human override is the intended backstop for the remainder. <!-- VERIFY: only claim an implemented override if the `O`-to-override affordance shipped -->
+- **The model can still be wrong about the diagnosis.** It cannot be wrong about the score. That asymmetry is the design: a wrong explanation is cheap and a student can see through it, a wrong grade is expensive and invisible. An instructor override is the intended backstop for the remainder, and is not yet built.
 - **Per-clause credit is all-or-nothing.** A clause with one failing hidden test earns zero. That is defensible for a contract-style rubric and would be wrong for an essay.
 
 ## What's next

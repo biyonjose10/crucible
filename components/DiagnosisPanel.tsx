@@ -86,8 +86,10 @@ export function DiagnosisPanel({
           <p className="font-mono text-[11px] text-warn">
             Written explanations are switched off.
           </p>
+          {/* `reason` already states that scoring is unaffected — do not
+              repeat it here. */}
           <p className="mt-1 text-[11px] text-muted leading-relaxed">
-            {result.reason} Grading is unaffected: it never needed a model.
+            {result.reason}
           </p>
         </div>
       )}

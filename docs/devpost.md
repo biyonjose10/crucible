@@ -52,7 +52,7 @@ This is the part we care about, and every item is a structural property of the c
 
 **Determinism is observable, not asserted.** Grade the same class twice and the scores are byte-identical. That is not a claim about the model's temperature. There is no model in that path to have one.
 
-**Claims are anchored to captured evidence.** A feedback sentence renders only if it cites a specific test result and its real traceback. Claims that cannot be anchored appear in a rejected tray rather than disappearing quietly, so you can see what the model wanted to say and why it wasn't allowed to. <!-- VERIFY before publishing: only keep this paragraph if the rejected tray shipped. -->
+**Claims are anchored to captured evidence.** A feedback sentence renders only if it cites a specific test result and its real traceback. Claims that cannot be anchored appear in a rejected tray rather than disappearing quietly, so you can see what the model wanted to say and why it wasn't allowed to.
 
 **Timeouts degrade to amber, never to a spinner.** An infinite loop is killed by `Worker.terminate()`, which genuinely stops it where a Python-level `try/except` cannot. Results printed before the kill are kept. Tests that never reported are marked inconclusive — never assumed to pass, never assumed to fail — and the submission is flagged for human review.
 
@@ -115,7 +115,7 @@ python, anthropic-claude, node.js, vercel
 
 - [ ] Repo is public, and no `.env.local` or API key is committed
 - [ ] Live URL loads with no login and no key, in a browser that has never seen it
-- [ ] `npx tsx scripts/verify.ts` passes on a clean clone <!-- VERIFY: currently blocked by the over-strict hidden-test assertion for the `hardcoded` archetype -->
+- [ ] `npx tsx scripts/verify.ts` passes on a clean clone
 - [ ] Video is at or under 2:00 and is publicly viewable without sign-in
 - [ ] Gallery image is the queue mid-run, not a logo
 - [ ] Tested on a phone and in a second browser

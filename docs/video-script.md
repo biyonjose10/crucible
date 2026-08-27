@@ -40,10 +40,10 @@ Nothing is tight. If a beat runs long in practice, the slack is in the 1:03 and 
 ## Things to check before you record
 
 - **The line number in the 0:40 beat.** The off-by-one archetype's bug is on **line 6** of that file (`return float(ordered[n // 2])`). If the model's rendered diagnosis names a different line, read the line the screen shows, not the one in this script. Never narrate a number that contradicts the frame.
-- **The cost figure in the 1:39 beat.** Read the counter, not this script. If it reads more than a cent, say the real number. <!-- VERIFY: the cost counter has to exist and read from the API's returned `usage`. If it did not ship, cut this beat entirely and give its 10 seconds to the closing shot — do not narrate a number that isn't on screen. -->
-- **The evidence chip and rejected-claims behaviour in the 0:40 beat.** <!-- VERIFY: if the click-to-open-traceback interaction did not ship, replace that sentence with "Every sentence cites the test that produced it" and show the citation inline. Only claim the interaction if it works on camera. -->
+- **The cost figure in the 1:39 beat.** Read the counter, not this script. If it reads more than a cent, say the real number.
+- **The evidence chip and rejected-claims behaviour in the 0:40 beat.** Verified working: clicking it opens the real captured traceback, which lands on the student's own line.
 - **Archetype 7's split.** It passes 5 of 5 visible and fails 5 of 7 hidden. The narration says "the hidden ones take it back down to four", which is true. Do not say "fails every hidden test" — two hidden tests legitimately pass.
-- **If a gradebook CSV export shipped**, it can replace the 1:39 beat: show the download, then "Export the gradebook. The whole class cost under a cent." Same length. <!-- VERIFY: only if it shipped. -->
+- **CSV gradebook export did not ship.** Do not narrate it.
 
 ## Recording notes
 
