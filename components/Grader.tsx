@@ -6,6 +6,7 @@ import { MEDIAN } from "@/lib/assignment";
 import { GraderPool } from "@/lib/grader-pool";
 import { failureSignature, score, type ScoreReport } from "@/lib/scoring";
 import { CLASS, DISTINCT_ARCHETYPES, type Submission } from "@/fixtures/class";
+import type { Diagnosis } from "@/lib/diagnose";
 import { SubmissionCard } from "./SubmissionCard";
 import { StatBar } from "./StatBar";
 import { StudentView } from "./StudentView";
@@ -160,6 +161,25 @@ export function Grader({
     setStudentView(id);
   }, []);
 
+  /**
+   * Stable identity on purpose. An inline arrow here re-created the callback on
+   * every Grader render, which tore down and re-ran the dialog's focus-trap
+   * effect — pulling focus behind the modal and then slamming it back to the
+   * Close button while a keyboard user was reading.
+   */
+  const closeStudentView = useCallback(() => setStudentView(null), []);
+
+  /**
+   * Every path that spends money reports through here. The student view and the
+   * visitor's own submission both bill real tokens, and both previously left
+   * the "Spent" readout at $0.00 — the one number the UI presents as ground
+   * truth about cost.
+   */
+  const recordSpend = useCallback((d: Diagnosis) => {
+    if (d.cached || d.unavailable) return;
+    setSpend((s) => ({ usd: s.usd + d.costUsd, calls: s.calls + 1 }));
+  }, []);
+
   const stats = useMemo(() => {
     const done = rows.filter((r) => r.state === "done" && r.report);
     const graded = done.filter((r) => r.report!.status === "graded");
@@ -251,8 +271,16 @@ export function Grader({
     const a = document.createElement("a");
     a.href = url;
     a.download = `${MEDIAN.slug}-gradebook.csv`;
+    // Firefox ignores a click on a detached anchor, and cancels the download if
+    // the object URL is revoked in the same tick. Attach, click, then clean up
+    // on a later turn.
+    a.style.display = "none";
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 0);
   }, [rows]);
 
   return (
@@ -422,13 +450,7 @@ export function Grader({
                       row.signature ? (cohort.get(row.signature) ?? 0) - 1 : 0
                     }
                     onOpenStudentView={() => setStudentView(row.submission.id)}
-                    onDiagnosis={(d) => {
-                      if (d.cached || d.unavailable) return;
-                      setSpend((s) => ({
-                        usd: s.usd + d.costUsd,
-                        calls: s.calls + 1,
-                      }));
-                    }}
+                    onDiagnosis={recordSpend}
                   />
                 ))}
               </div>
@@ -453,7 +475,8 @@ export function Grader({
           <StudentView
             submission={pair.submission}
             report={pair.report}
-            onClose={() => setStudentView(null)}
+            onDiagnosis={recordSpend}
+            onClose={closeStudentView}
           />
         );
       })()}

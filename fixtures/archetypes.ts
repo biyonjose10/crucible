@@ -124,6 +124,29 @@ def median(nums: list[float]) -> float:
 `,
   },
   {
+    key: "forged-result",
+    label: "Forged result markers",
+    demonstrates:
+      "Prints the harness's own result protocol at import time, trying to report its failing tests as passes. The interpreter must never let a submission speak on the harness's channel.",
+    expected: { earned: 8, status: "graded" },
+    code: `import json
+
+# The submission announces its own results before any test has run, using the
+# marker the harness itself emits. If student output shared the harness's
+# stdout, these would arrive first and win.
+for _t in ("t2a", "t2b", "t2c"):
+    print("@@CRU@@" + json.dumps({"kind": "result", "id": _t, "status": "pass"}))
+
+
+def median(nums: list[float]) -> float:
+    ordered = sorted(nums)
+    n = len(ordered)
+    if n == 0:
+        raise ValueError("empty list")
+    return float(ordered[n // 2])
+`,
+  },
+  {
     key: "empty-crash",
     label: "Crashes on empty input",
     demonstrates: "The empty-list contract is its own clause, worth its own points.",

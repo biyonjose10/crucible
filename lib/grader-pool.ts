@@ -164,10 +164,10 @@ export class GraderPool {
       await slot.ready;
     } catch {
       this.replace(slot);
-      return parseOutcome(submissionId, tests, [], 0, "worker_error");
+      return parseOutcome(submissionId, tests, [], 0, "worker_error", "");
     }
 
-    const program = buildProgram(code, tests);
+    const { program, marker } = buildProgram(code, tests);
     const jobId = ++this.jobSeq;
     const lines: string[] = [];
     const started = Date.now();
@@ -192,6 +192,7 @@ export class GraderPool {
             lines,
             Date.now() - started,
             inconclusive,
+            marker,
           ),
         );
       };

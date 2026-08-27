@@ -19,6 +19,19 @@ import type { ScoreReport } from "./scoring";
 
 const memo = new Map<string, Diagnosis>();
 
+/**
+ * Requests currently in flight, keyed by submission.
+ *
+ * The memo alone was not enough: it is only written when a stream finishes, so
+ * opening the student view while the card's panel was still streaming missed
+ * the memo and fired a second full triage-plus-diagnosis exchange for the same
+ * submission — paid twice, on a shared key. A second consumer now waits on the
+ * first request instead of starting its own. It forgoes the token-by-token
+ * reveal and gets the finished text, which is the right trade for not paying
+ * twice.
+ */
+const inflight = new Map<string, Promise<Diagnosis>>();
+
 export interface DiagnosisState {
   /** Prose accumulated so far. Renders while the rest is still arriving. */
   text: string;
@@ -60,16 +73,35 @@ export function useDiagnosis(
       return;
     }
 
-    const controller = new AbortController();
+    // Not an AbortController: a shared request must not die because the
+    // component that happened to start it unmounted. Aborting would not refund
+    // anything either — by the time a stream is open the server has already
+    // called Gemini. This is only a "am I still mounted" flag.
+    let live = true;
     setState({ text: "", streaming: true });
 
-    (async () => {
+    const pending = inflight.get(submissionId);
+    if (pending) {
+      pending
+        .then((d) => {
+          if (live) setState({ text: d.summary, streaming: false, result: d });
+        })
+        .catch(() => {
+          if (live) {
+            setState({ text: "", streaming: false, error: "Diagnosis failed." });
+          }
+        });
+      return () => {
+        live = false;
+      };
+    }
+
+    const request = (async (): Promise<Diagnosis> => {
       try {
         const res = await fetch("/api/diagnose", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ assignmentSlug, code, report }),
-          signal: controller.signal,
         });
 
         if (!res.ok || !res.body) {
@@ -110,16 +142,22 @@ export function useDiagnosis(
 
             if (event === "delta") {
               prose += (payload as { text: string }).text ?? "";
-              setState({ text: prose, streaming: true });
+              if (live) setState({ text: prose, streaming: true });
             } else if (event === "done") {
               const result = payload as Diagnosis;
+              // Memoise and report spend regardless of whether this component
+              // is still mounted — the cost was incurred either way, and a
+              // later consumer should get the cached answer for free.
               memo.set(submissionId, result);
-              setState({
-                text: result.summary || prose,
-                streaming: false,
-                result,
-              });
               settled.current?.(result);
+              if (live) {
+                setState({
+                  text: result.summary || prose,
+                  streaming: false,
+                  result,
+                });
+              }
+              return result;
             } else if (event === "error") {
               throw new Error(
                 (payload as { message: string }).message ||
@@ -128,17 +166,29 @@ export function useDiagnosis(
             }
           }
         }
+        throw new Error("The diagnosis stream ended without a result.");
       } catch (err) {
-        if (controller.signal.aborted) return;
-        setState({
-          text: "",
-          streaming: false,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        if (live) {
+          setState({
+            text: "",
+            streaming: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+        throw err;
+      } finally {
+        inflight.delete(submissionId);
       }
     })();
 
-    return () => controller.abort();
+    inflight.set(submissionId, request);
+    // The originating hook already renders from state; this only stops an
+    // unhandled rejection when the request fails.
+    request.catch(() => {});
+
+    return () => {
+      live = false;
+    };
   }, [active, submissionId, assignmentSlug, code, report]);
 
   return state;

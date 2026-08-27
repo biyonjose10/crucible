@@ -3,11 +3,27 @@ import type { TestCase } from "./types";
 export const SOLUTION_DIR = "/home/pyodide";
 export const SOLUTION_PATH = `${SOLUTION_DIR}/solution.py`;
 
-/** Marker prefix for machine-readable lines on stdout. */
-export const EMIT = "@@CRU@@";
-
 /** Longest traceback we keep. Real evidence, but bounded token cost. */
 const MAX_TRACE = 2000;
+
+/**
+ * A single-use marker for one run's result lines.
+ *
+ * Originally this was a fixed constant, which was a hole: the submission is
+ * imported before any test runs, so a student who printed the constant with a
+ * hand-written result object got their forgery into the same stdout stream the
+ * harness writes to — and since the parser takes the first report per test id,
+ * the forgery *shadowed* the real result. A submission could award itself full
+ * marks, which is precisely the failure this project exists to rule out. It is
+ * covered by the `forged-result` archetype in scripts/verify.ts.
+ *
+ * The marker is now unguessable and generated per run. That is the second line
+ * of defence; the first is that student output never reaches this stream at
+ * all (see `buildTestBody`).
+ */
+function newMarker(): string {
+  return `@@CRU-${crypto.randomUUID().replace(/-/g, "")}@@`;
+}
 
 /**
  * Generate the Python harness that runs a student's module against the tests.
@@ -16,20 +32,31 @@ const MAX_TRACE = 2000;
  * if the interpreter is killed mid-run (an infinite loop, say) every result
  * produced before the kill still survives. Tests that never reported are
  * scored "inconclusive" — never assumed to pass, never assumed to fail.
+ *
+ * Student code is executed with stdout redirected into a sink, both on import
+ * and around every call, so a submission cannot write to the channel the
+ * harness reports on. `sys.__stdout__` is redirected alongside it, because
+ * `contextlib.redirect_stdout` leaves that alias untouched and it would
+ * otherwise be an obvious way back to the real stream.
  */
-function buildTestBody(tests: TestCase[]): string {
+function buildTestBody(tests: TestCase[], marker: string): string {
   const payload = JSON.stringify(
     tests.map((t) => ({ id: t.id, expr: t.expr, kind: t.kind, expected: t.expected })),
   );
 
   return `
-import json, math, traceback
+import contextlib, io, json, math, sys, traceback
 
 TESTS = json.loads(${JSON.stringify(payload)})
 MAX_TRACE = ${MAX_TRACE}
+MARKER = ${JSON.stringify(marker)}
+
+_HARNESS_OUT = sys.stdout
+_SINK = io.StringIO()
+sys.__stdout__ = _SINK
 
 def _emit(o):
-    print("${EMIT}" + json.dumps(o), flush=True)
+    print(MARKER + json.dumps(o), file=_HARNESS_OUT, flush=True)
 
 def _trace():
     raw = traceback.format_exc().split("\\n")
@@ -48,7 +75,8 @@ def _same(got, expected):
     return got == expected
 
 try:
-    import solution
+    with contextlib.redirect_stdout(_SINK):
+        import solution
 except BaseException:
     _emit({"kind": "import_error", "trace": _trace()})
 else:
@@ -59,7 +87,8 @@ else:
 
     for t in TESTS:
         try:
-            value = eval(t["expr"], dict(ns))
+            with contextlib.redirect_stdout(_SINK):
+                value = eval(t["expr"], dict(ns))
         except BaseException as exc:
             name = type(exc).__name__
             if t["kind"] == "raises" and name == t["expected"]:
@@ -93,8 +122,16 @@ else:
  * The student's source is embedded via json.loads rather than interpolated
  * into a literal, so no combination of quotes, backslashes or newlines in a
  * submission can break out of the string and alter the harness.
+ *
+ * Returns the marker alongside the program: the caller needs it to tell the
+ * harness's own lines apart from anything else on the stream, and it differs
+ * every run.
  */
-export function buildProgram(solution: string, tests: TestCase[]): string {
+export function buildProgram(
+  solution: string,
+  tests: TestCase[],
+): { program: string; marker: string } {
+  const marker = newMarker();
   const embedded = JSON.stringify(JSON.stringify(solution));
 
   const preamble = [
@@ -109,5 +146,5 @@ export function buildProgram(solution: string, tests: TestCase[]): string {
     'sys.modules.pop("solution", None)',
   ].join("\n");
 
-  return preamble + buildTestBody(tests);
+  return { program: preamble + buildTestBody(tests, marker), marker };
 }

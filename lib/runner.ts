@@ -1,4 +1,4 @@
-import { buildProgram, EMIT } from "./harness";
+import { buildProgram } from "./harness";
 import type { ExecutionOutcome, TestCase, TestResult } from "./types";
 
 /** The subset of the Pyodide API we depend on. */
@@ -18,24 +18,33 @@ export function runSubmission(
   code: string,
   tests: TestCase[],
   onLine: (line: string) => void,
-): void {
+): string {
+  const { program, marker } = buildProgram(code, tests);
   py.setStdout({ batched: onLine });
-  py.runPython(buildProgram(code, tests));
+  py.runPython(program);
+  return marker;
 }
 
 /**
  * Turn emitted stdout lines into an execution outcome.
  *
- * Anything that is not a marker line is ignored — a student printing to stdout
- * must not be able to forge a result. The marker alone is not enough either:
- * lines are only accepted for test ids that actually exist in the suite.
+ * Anything that is not a marker line is ignored, and the marker is generated
+ * fresh for every run, so a submission cannot address this parser even if its
+ * output reached the stream — which it also does not, since student code runs
+ * with stdout redirected into a sink. Two independent barriers, because a
+ * forged result would let a submission set its own grade.
+ *
+ * Ids are checked as well: lines are only accepted for tests the suite
+ * actually declared, and the first report for an id wins.
  */
 export function parseOutcome(
   submissionId: string,
   tests: TestCase[],
   lines: string[],
   durationMs: number,
-  inconclusive?: ExecutionOutcome["inconclusive"],
+  inconclusive: ExecutionOutcome["inconclusive"] | undefined,
+  /** The marker this run emitted. Unguessable, so only the harness can use it. */
+  marker: string,
 ): ExecutionOutcome {
   const known = new Set(tests.map((t) => t.id));
   const seen = new Set<string>();
@@ -44,11 +53,11 @@ export function parseOutcome(
 
   for (const raw of lines) {
     for (const line of raw.split("\n")) {
-      const at = line.indexOf(EMIT);
+      const at = line.indexOf(marker);
       if (at === -1) continue;
       let parsed: Record<string, unknown>;
       try {
-        parsed = JSON.parse(line.slice(at + EMIT.length));
+        parsed = JSON.parse(line.slice(at + marker.length));
       } catch {
         continue;
       }

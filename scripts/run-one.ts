@@ -25,9 +25,18 @@ async function main() {
   // Signal to the parent that boot finished, so its timeout measures execution.
   process.stderr.write("READY\n");
 
-  runSubmission(py as never, archetype.code, MEDIAN.tests, (line) => lines.push(line));
+  const marker = runSubmission(py as never, archetype.code, MEDIAN.tests, (line) =>
+    lines.push(line),
+  );
 
-  const outcome = parseOutcome(archetype.key, MEDIAN.tests, lines, Date.now() - started);
+  const outcome = parseOutcome(
+    archetype.key,
+    MEDIAN.tests,
+    lines,
+    Date.now() - started,
+    undefined,
+    marker,
+  );
   process.stdout.write("OUTCOME:" + JSON.stringify(outcome) + "\n");
 
 }

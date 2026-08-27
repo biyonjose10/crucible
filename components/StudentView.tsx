@@ -6,6 +6,7 @@ import { MEDIAN } from "@/lib/assignment";
 import { useDiagnosis } from "@/lib/useDiagnosis";
 import type { ScoreReport } from "@/lib/scoring";
 import type { Submission } from "@/fixtures/class";
+import type { Diagnosis } from "@/lib/diagnose";
 
 /**
  * The same result, addressed to the person who has to act on it.
@@ -23,10 +24,13 @@ export function StudentView({
   submission,
   report,
   onClose,
+  onDiagnosis,
 }: {
   submission: Submission;
   report: ScoreReport;
   onClose: () => void;
+  /** Reports real spend upward. Without it this view billed silently. */
+  onDiagnosis?: (d: Diagnosis) => void;
 }) {
   const { text, streaming, result } = useDiagnosis(
     submission.id,
@@ -34,6 +38,7 @@ export function StudentView({
     submission.code,
     report,
     true,
+    onDiagnosis,
   );
 
   const panelRef = useRef<HTMLDivElement>(null);
