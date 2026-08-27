@@ -5,6 +5,8 @@ import { MEDIAN } from "@/lib/assignment";
 import type { ClauseScore, ScoreReport } from "@/lib/scoring";
 import type { Row } from "./Grader";
 import { EvidenceChip } from "./EvidenceChip";
+import { DiagnosisPanel } from "./DiagnosisPanel";
+import type { Diagnosis } from "@/lib/diagnose";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -101,11 +103,13 @@ export function SubmissionCard({
   index,
   expanded,
   onToggle,
+  onDiagnosis,
 }: {
   row: Row;
   index: number;
   expanded: boolean;
   onToggle: () => void;
+  onDiagnosis?: (d: Diagnosis) => void;
 }) {
   const v = verdict(row.report);
   const isRunning = row.state === "running";
@@ -174,6 +178,14 @@ export function SubmissionCard({
             transition={{ duration: 0.28, ease: EASE }}
             className="overflow-hidden border-t border-line"
           >
+            <DiagnosisPanel
+              submissionId={row.submission.id}
+              code={row.submission.code}
+              report={row.report}
+              active={expanded}
+              onSettled={onDiagnosis}
+            />
+
             <div className="grid lg:grid-cols-2 gap-0">
               {/* Submitted code, with line numbers so a diagnosis can point. */}
               <div className="border-b lg:border-b-0 lg:border-r border-line">

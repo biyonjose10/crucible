@@ -33,6 +33,9 @@ export function Grader() {
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Real spend, accumulated from API usage. Reused diagnoses are not counted
+  // again — that reuse is exactly what keeps the number small.
+  const [spend, setSpend] = useState({ usd: 0, calls: 0 });
 
   const [rows, setRows] = useState<Row[]>(() =>
     CLASS.map((submission) => ({ submission, state: "queued" as const })),
@@ -136,6 +139,7 @@ export function Grader() {
         bootError={bootError}
         elapsed={elapsed}
         stats={stats}
+        spend={spend}
       />
 
       <main className="flex-1 w-full max-w-5xl mx-auto px-5 pb-24">
@@ -220,6 +224,13 @@ export function Grader() {
                         cur === row.submission.id ? null : row.submission.id,
                       )
                     }
+                    onDiagnosis={(d) => {
+                      if (d.cached || d.unavailable) return;
+                      setSpend((s) => ({
+                        usd: s.usd + d.costUsd,
+                        calls: s.calls + 1,
+                      }));
+                    }}
                   />
                 ))}
               </div>

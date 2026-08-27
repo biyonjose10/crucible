@@ -16,6 +16,7 @@ interface Props {
   bootError: string | null;
   elapsed: number;
   stats: Stats;
+  spend: { usd: number; calls: number };
 }
 
 function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
@@ -27,7 +28,14 @@ function Stat({ label, value, tone }: { label: string; value: string; tone?: str
   );
 }
 
-export function StatBar({ phase, booted, bootError, elapsed, stats }: Props) {
+export function StatBar({
+  phase,
+  booted,
+  bootError,
+  elapsed,
+  stats,
+  spend,
+}: Props) {
   const pct = stats.total ? (stats.done / stats.total) * 100 : 0;
 
   return (
@@ -73,6 +81,13 @@ export function StatBar({ phase, booted, bootError, elapsed, stats }: Props) {
               tone="text-muted"
             />
             <Stat label="Elapsed" value={`${(elapsed / 1000).toFixed(1)}s`} />
+            {/* Grading itself is free — this only ever moves when someone
+                opens a card and asks for an explanation. */}
+            <Stat
+              label="Spent"
+              value={spend.usd === 0 ? "$0.00" : `$${spend.usd.toFixed(4)}`}
+              tone={spend.usd === 0 ? "text-faint" : "text-ink"}
+            />
           </div>
         )}
       </div>
