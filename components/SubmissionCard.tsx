@@ -118,8 +118,12 @@ export function SubmissionCard({
   return (
     <motion.article
       layout
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
+      // Deliberately no opacity here. Entry animations are rAF-driven, and a
+      // backgrounded tab throttles rAF — animating opacity from 0 means a link
+      // opened in a background tab shows an empty queue until it gains focus.
+      // The y-slide is a flourish; visibility must not depend on it.
+      initial={{ y: 6 }}
+      animate={{ y: 0 }}
       transition={{
         duration: 0.32,
         ease: EASE,

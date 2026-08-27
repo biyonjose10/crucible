@@ -150,8 +150,10 @@ export function Grader() {
           {phase === "idle" ? (
             <motion.section
               key="hero"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
+              // See SubmissionCard: no opacity gate. A judge opening this in a
+              // background tab must not be shown a blank landing page.
+              initial={{ y: 8 }}
+              animate={{ y: 0 }}
               transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
               className="pt-24 pb-16"
             >
@@ -207,13 +209,7 @@ export function Grader() {
               </dl>
             </motion.section>
           ) : (
-            <motion.section
-              key="queue"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.25 }}
-              className="pt-8"
-            >
+            <section key="queue" className="pt-8">
               <div className="flex flex-col gap-2">
                 {rows.map((row, i) => (
                   <SubmissionCard
@@ -236,7 +232,7 @@ export function Grader() {
                   />
                 ))}
               </div>
-            </motion.section>
+            </section>
           )}
         </AnimatePresence>
       </main>
