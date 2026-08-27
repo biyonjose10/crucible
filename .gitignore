@@ -49,3 +49,6 @@ harness_out.py
 
 # Dev server log
 dev.log
+
+.vercel
+.env*

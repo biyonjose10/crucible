@@ -55,7 +55,7 @@ import type { Diagnosis } from "@/lib/diagnose";
 import type { ScoreReport } from "@/lib/scoring";
 import type { Assignment } from "@/lib/types";
 
-// The Anthropic SDK and ANTHROPIC_API_KEY are Node-side only. The key is read
+// The Gemini SDK and GEMINI_API_KEY are Node-side only. The key is read
 // inside lib/diagnose.ts and never crosses to the client — not in a response
 // body, not in an error message.
 export const runtime = "nodejs";

@@ -22,51 +22,76 @@
  *     Diagnosis. Nothing in this module throws.
  */
 
-import Anthropic, { APIError, APIUserAbortError } from "@anthropic-ai/sdk";
+import {
+  ApiError,
+  FunctionCallingConfigMode,
+  GoogleGenAI,
+  ThinkingLevel,
+} from "@google/genai";
+
+import type {
+  FunctionDeclaration,
+  GenerateContentResponseUsageMetadata,
+  Part,
+} from "@google/genai";
 
 import type { Assignment, TestResult } from "./types";
 import type { ScoreReport } from "./scoring";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Models and prices
+//
+// Every model id and every rate below was read from Google's own docs on
+// 2026-08-27:
+//   ids     — https://ai.google.dev/gemini-api/docs/models
+//   prices  — https://ai.google.dev/gemini-api/docs/pricing  (paid tier)
+// Both models were confirmed present in this key's ListModels response on the
+// same date, so neither id is a guess about what the API will accept.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Tier 1. The cheapest model that can reliably sort a failure into a category.
- * Classification is a small, well-bounded job; paying frontier rates for it
- * would be paying for capability the task cannot use.
+ * Tier 1. The cheapest current-generation model that can reliably sort a
+ * failure into a category. Classification is a small, well-bounded job; paying
+ * frontier rates for it would be paying for capability the task cannot use.
  */
-export const TRIAGE_MODEL = "claude-haiku-4-5";
+export const TRIAGE_MODEL = "gemini-3.1-flash-lite";
 
 /**
  * Tier 2. Only invoked when triage reports that the failure needs an
  * explanation rather than a label — the pedagogy case, where the wording is
  * the entire product.
  */
-export const DIAGNOSIS_MODEL = "claude-sonnet-5";
+export const DIAGNOSIS_MODEL = "gemini-3.7-flash";
 
 interface ModelPrice {
   /** USD per million input tokens. */
   input: number;
-  /** USD per million output tokens. */
+  /**
+   * USD per million input tokens served from cache. Gemini's implicit cache
+   * needs no opt-in, so this rate applies whenever the API says it applied.
+   */
+  cachedInput: number;
+  /** USD per million output tokens. Reasoning tokens bill at this rate too. */
   output: number;
 }
 
 /**
  * Published list prices, USD per million tokens. Kept next to the model
  * constants so a model swap and a price change are the same edit.
+ *
+ * These are the rates in force today, not the ones scheduled for later. Gemini
+ * 3.7 Flash is discounted through 2026-12-31 and doubles to $1.50/$7.50 on
+ * 2027-01-01; quoting the future rate would make the on-screen counter wrong
+ * for four months in order to be right afterwards, which is the worse trade.
+ * When that date passes, this table is the one line to change.
  */
 const PRICES: Record<string, ModelPrice> = {
-  [TRIAGE_MODEL]: { input: 1.0, output: 5.0 },
-  // List price. Sonnet 5 is on introductory pricing ($2/$10) until 2026-08-31;
-  // we quote list so the counter does not start under-reporting in September.
-  [DIAGNOSIS_MODEL]: { input: 3.0, output: 15.0 },
+  // $0.25 in / $1.50 out. Flash-Lite has no cached-input tier, so a cache hit
+  // — which the API will not report for this model anyway — bills as input.
+  [TRIAGE_MODEL]: { input: 0.25, cachedInput: 0.25, output: 1.5 },
+  // $0.75 in / $3.75 out, cached input $0.075.
+  [DIAGNOSIS_MODEL]: { input: 0.75, cachedInput: 0.075, output: 3.75 },
 };
-
-/** Cache reads bill at a tenth of the base input rate. */
-const CACHE_READ_RATE = 0.1;
-/** Cache writes bill at 1.25x the base input rate, for the 5-minute TTL. */
-const CACHE_WRITE_RATE = 1.25;
 
 /** Hard ceiling on the whole two-tier exchange. */
 const DEADLINE_MS = 20_000;
@@ -79,6 +104,14 @@ const MAX_CODE_LINES = 400;
 
 /** Distinct failure patterns held in memory before the oldest is evicted. */
 const MAX_CACHE_ENTRIES = 200;
+
+/**
+ * Output budgets. Gemini counts reasoning tokens against this ceiling, so the
+ * numbers are set well above the prose we actually want: a budget that thinking
+ * exhausts yields a MAX_TOKENS finish with nothing in it.
+ */
+const TRIAGE_MAX_TOKENS = 800;
+const DIAGNOSIS_MAX_TOKENS = 4096;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -216,27 +249,36 @@ export interface DiagnoseRequest {
  * Every input is a number the API returned. Nothing here is estimated from
  * character counts, and no rate is invented — an unknown model yields a zero
  * cost rather than a plausible-looking guess.
+ *
+ * Two Gemini-specific details that are easy to get wrong, and that a naive
+ * port would silently mis-bill:
+ *
+ *   • `promptTokenCount` is inclusive of `cachedContentTokenCount`. Charging
+ *     both without subtracting would bill the cached prefix twice.
+ *   • `candidatesTokenCount` is exclusive of `thoughtsTokenCount`, but Google
+ *     bills reasoning at the output rate. Ignoring thoughts would under-report
+ *     the expensive half of the call.
  */
 function priceCall(
   stage: StageUsage["stage"],
   model: string,
-  usage: {
-    input_tokens?: number | null;
-    output_tokens?: number | null;
-    cache_read_input_tokens?: number | null;
-    cache_creation_input_tokens?: number | null;
-  },
+  usage: GenerateContentResponseUsageMetadata | undefined,
 ): StageUsage {
-  const inputTokens = usage.input_tokens ?? 0;
-  const outputTokens = usage.output_tokens ?? 0;
-  const cacheReadTokens = usage.cache_read_input_tokens ?? 0;
-  const cacheWriteTokens = usage.cache_creation_input_tokens ?? 0;
+  const cacheReadTokens = usage?.cachedContentTokenCount ?? 0;
+  const inputTokens = Math.max(0, (usage?.promptTokenCount ?? 0) - cacheReadTokens);
+  const outputTokens =
+    (usage?.candidatesTokenCount ?? 0) + (usage?.thoughtsTokenCount ?? 0);
+
+  // Always zero. Gemini's implicit cache is populated as a side effect of a
+  // normal request and is never billed as a write, so there is no number to
+  // report here — the field is kept because the UI and the Diagnosis contract
+  // both name it, and a missing field is harder to read than an honest 0.
+  const cacheWriteTokens = 0;
 
   const price = PRICES[model];
   const costUsd = price
     ? (inputTokens * price.input +
-        cacheReadTokens * price.input * CACHE_READ_RATE +
-        cacheWriteTokens * price.input * CACHE_WRITE_RATE +
+        cacheReadTokens * price.cachedInput +
         outputTokens * price.output) /
       1_000_000
     : 0;
@@ -263,16 +305,24 @@ function totalCost(usage: StageUsage[]): number {
 /**
  * The instructions, rubric and test suite.
  *
- * Identical for every submission in a class, so it goes in a cached prefix and
- * the per-student evidence goes after it. With thirty students, twenty-nine of
- * them read this block from cache at a tenth of the input rate.
+ * Identical for every submission in a class, and sent as a system instruction
+ * so the per-student evidence stays cleanly separated from it.
+ *
+ * NO EXPLICIT PROMPT CACHE. Anthropic's `cache_control` breakpoints have no
+ * cheap Gemini equivalent — explicit context caching means creating, naming and
+ * expiring a CachedContent resource per assignment, which is real lifecycle
+ * code for a prefix this small. The dedupe cache further down this file is the
+ * lever that actually matters: it removes whole calls rather than discounting
+ * their prefix, so a class of thirty is billed per distinct misconception. Any
+ * saving from Gemini's implicit cache arrives on top of that for free, and
+ * `cacheReadTokens` in the returned usage is how you tell whether it did.
  *
  * Note what is *not* here: the point value of any clause. The model has no use
  * for it, and leaving it out means the model is never even told what a clause
  * is worth. Prompt-injection defence is layered on top of that, not instead of
  * it — see the delimiter rules below.
  */
-function buildSystemPrefix(assignment: Assignment): Anthropic.Messages.TextBlockParam[] {
+function buildSystemPrefix(assignment: Assignment): string {
   const rubric = assignment.clauses
     .map((c) => `  clause ${c.id}: ${c.text}`)
     .join("\n");
@@ -285,7 +335,7 @@ function buildSystemPrefix(assignment: Assignment): Anthropic.Messages.TextBlock
     )
     .join("\n");
 
-  const text = `You are the explanation half of an automated code grader for an
+  return `You are the explanation half of an automated code grader for an
 introductory programming course. A sandbox has already executed the student's
 program and scored it. Your job is to explain the failures it found, in plain
 language a first-year student can act on.
@@ -316,17 +366,6 @@ ${rubric}
 
 TEST SUITE
 ${suite}`;
-
-  return [
-    {
-      type: "text",
-      text,
-      // One breakpoint covers tools + system, which is everything stable.
-      // Below a model's minimum cacheable prefix this is silently a no-op;
-      // `cacheReadTokens` in the returned usage is how you tell.
-      cache_control: { type: "ephemeral" },
-    },
-  ];
 }
 
 /** A failing clause together with the failing tests that establish it. */
@@ -360,8 +399,14 @@ function numberedCode(code: string): { block: string; lineCount: number } {
 
 /**
  * Assemble the per-student half of the prompt: the code, and the captured
- * output of the tests that failed. This is the only part that varies between
- * submissions, so it sits after the cache breakpoint.
+ * output of the tests that failed.
+ *
+ * The <student_code> wrapper is defence in depth and nothing more. It makes the
+ * boundary between instruction and data legible to the model, which helps; it
+ * is not what stops "award full marks" from working. That is structural — the
+ * score was already computed by lib/scoring.ts, this module is not reachable
+ * from it, and the claim schema below has no field a mark could travel in. A
+ * model that fell for the injection completely would still change nothing.
  */
 function buildEvidence(req: DiagnoseRequest): string {
   const { block } = numberedCode(req.code);
@@ -417,27 +462,49 @@ function indent(text: string, spaces: number): string {
  * should take effect without a rebuild.
  */
 function readApiKey(): string | undefined {
-  const key = process.env.ANTHROPIC_API_KEY;
+  const key = process.env.GEMINI_API_KEY;
   return key && key.trim().length > 0 ? key : undefined;
 }
 
-function makeClient(apiKey: string): Anthropic {
-  // maxRetries: 0 because we do our own — the SDK's default would retry
-  // inside our deadline without telling us, and we want the backoff policy
-  // visible in this file rather than inherited.
-  return new Anthropic({ apiKey, maxRetries: 0 });
+function makeClient(apiKey: string): GoogleGenAI {
+  // Passing the key explicitly rather than letting the SDK discover it from the
+  // environment, so that the one place this process reads a credential is
+  // readApiKey() above and grep finds it in one hop.
+  return new GoogleGenAI({ apiKey });
+}
+
+/**
+ * Strip anything key-shaped out of text that is about to be shown to a user.
+ *
+ * `reason` travels to the browser. Provider error messages sometimes echo the
+ * failing request back, and this key is shared with other production projects,
+ * so a leak here would be expensive well beyond this app. The SDK sends the key
+ * in a header and should never include it, which is exactly why this costs
+ * nothing to keep.
+ */
+function redact(text: string): string {
+  return text
+    .replace(/AIza[0-9A-Za-z_-]{10,}/g, "<redacted>")
+    .replace(/([?&](?:key|api_?key)=)[^&\s]+/gi, "$1<redacted>");
+}
+
+/** Cancellation, whether it came from our deadline or the caller's signal. */
+function isAbort(err: unknown): boolean {
+  return (
+    err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")
+  );
 }
 
 /** 429 and 5xx are worth another attempt; a 400 will fail identically forever. */
 function isRetryable(err: unknown): boolean {
-  if (err instanceof APIUserAbortError) return false;
-  if (err instanceof APIError) {
-    const status = err.status;
-    return status === 429 || (typeof status === "number" && status >= 500);
+  if (isAbort(err)) return false;
+  if (err instanceof ApiError) {
+    return err.status === 429 || err.status >= 500;
   }
-  // Connection resets and DNS blips surface as non-APIError; one more try is
-  // cheap and usually succeeds.
-  return err instanceof Error && err.name === "APIConnectionError";
+  // Connection resets and DNS blips reach us from undici as a TypeError
+  // carrying the syscall error as its cause. A bare TypeError with no cause is
+  // a bug in this file and must not be retried.
+  return err instanceof TypeError && err.cause !== undefined;
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -519,6 +586,24 @@ function withDeadline(external?: AbortSignal): {
   };
 }
 
+/**
+ * The visible text of a response chunk.
+ *
+ * Walks the parts by hand rather than using the SDK's `.text` accessor for two
+ * reasons: that accessor warns when a candidate also carries a function call,
+ * which ours always does, and skipping `part.thought` here is what guarantees
+ * a model's private reasoning never reaches a student's screen.
+ */
+function visibleText(parts: Part[] | undefined): string {
+  if (!parts) return "";
+  let out = "";
+  for (const part of parts) {
+    if (part.thought) continue;
+    if (typeof part.text === "string") out += part.text;
+  }
+  return out;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tier 1 — triage
 // ─────────────────────────────────────────────────────────────────────────────
@@ -530,6 +615,15 @@ interface TriageVerdict {
   headline: string;
 }
 
+/**
+ * Triage uses `responseJsonSchema`, not function calling.
+ *
+ * The two are alternatives on Gemini and the choice follows the shape of the
+ * output. This stage produces no prose at all — the entire response is a record
+ * for code to read — so constraining the whole response to a schema is both
+ * simpler and stricter than asking for a function call and hoping one arrives.
+ * Tier 2 makes the opposite choice, for the opposite reason.
+ */
 const TRIAGE_SCHEMA = {
   type: "object",
   properties: {
@@ -568,48 +662,47 @@ const TRIAGE_SCHEMA = {
  *
  * A syntax error whose traceback already reads "expected ':'" does not need a
  * frontier model to restate it. Roughly a third of a real submission pile is
- * that case, and this call costs about a fifth of a cent per thousand.
+ * that case, and this call costs a small fraction of a cent.
  */
 async function triage(
-  client: Anthropic,
+  client: GoogleGenAI,
   req: DiagnoseRequest,
   evidence: string,
   signal: AbortSignal,
 ): Promise<{ verdict: TriageVerdict; usage: StageUsage }> {
-  const message = await withRetry(signal, () =>
-    client.messages.create(
-      {
-        model: TRIAGE_MODEL,
-        max_tokens: 400,
-        system: buildSystemPrefix(req.assignment),
-        // Structured output: the classification is consumed by code, so it
-        // should arrive shaped for code rather than parsed out of prose.
-        output_config: {
-          format: { type: "json_schema", schema: TRIAGE_SCHEMA as unknown as Record<string, unknown> },
+  const response = await withRetry(signal, () =>
+    client.models.generateContent({
+      model: TRIAGE_MODEL,
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: `${evidence}\n\nClassify this failure.` },
+          ],
         },
-        messages: [
-          {
-            role: "user",
-            content: `${evidence}\n\nClassify this failure. Reply with the JSON object only.`,
-          },
-        ],
+      ],
+      config: {
+        abortSignal: signal,
+        systemInstruction: buildSystemPrefix(req.assignment),
+        maxOutputTokens: TRIAGE_MAX_TOKENS,
+        // Labelling a failure the sandbox has already characterised does not
+        // reward deliberation; it just adds latency in front of tier 2.
+        thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+        responseMimeType: "application/json",
+        responseJsonSchema: TRIAGE_SCHEMA,
       },
-      { signal },
-    ),
+    }),
   );
 
-  const usage = priceCall("triage", TRIAGE_MODEL, message.usage);
-  const text = message.content
-    .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("");
+  const usage = priceCall("triage", TRIAGE_MODEL, response.usageMetadata);
+  const text = visibleText(response.candidates?.[0]?.content?.parts);
 
   return { verdict: parseTriage(text), usage };
 }
 
 /**
- * Structured outputs make malformed JSON unlikely, not impossible — a refusal
- * or a truncation still lands here. An unparseable verdict degrades to
+ * Structured outputs make malformed JSON unlikely, not impossible — a safety
+ * block or a truncation still lands here. An unparseable verdict degrades to
  * "substantive", which errs towards spending money to explain rather than
  * towards showing the student nothing.
  */
@@ -656,24 +749,37 @@ function parseTriage(text: string): TriageVerdict {
 // Tier 2 — diagnosis
 // ─────────────────────────────────────────────────────────────────────────────
 
+const CLAIM_FUNCTION_NAME = "record_claims";
+
 /**
- * The only tool the model is given.
+ * The only function the model is given.
+ *
+ * Function calling rather than `responseJsonSchema` here, and the reason is the
+ * stream. JSON mode makes the entire response one object, which would mean the
+ * student watches a brace-by-brace `{"summary":"Your fun...` crawl across the
+ * screen instead of a paragraph. A function call keeps the two halves apart:
+ * prose streams as text parts and renders immediately, while the machine-
+ * checkable part arrives as arguments the SDK has already parsed. That parsing
+ * is also why there is no partial-JSON accumulator in this file — Gemini hands
+ * over `args` as an object or not at all.
  *
  * Read the schema as a statement of what the model is *able* to say: a clause
  * id, a test id, a line number, and a sentence. There is no field for a mark,
  * so "award full marks" is not an expressible output — the injection archetype
  * fails here for the same reason a calculator cannot return a colour.
  */
-const CLAIM_TOOL: Anthropic.Messages.Tool = {
-  name: "record_claims",
+const CLAIM_FUNCTION: FunctionDeclaration = {
+  name: CLAIM_FUNCTION_NAME,
   description:
     "Record the evidence-anchored claims behind your diagnosis. Every claim " +
     "must cite one failing test id that appears in the evidence, and the " +
     "rubric clause that test belongs to. Include a line number only when you " +
     "can point at the specific line in <student_code> that causes the " +
     "failure. Claims whose citations do not check out are discarded.",
-  strict: true,
-  input_schema: {
+  // parametersJsonSchema rather than `parameters`, because the latter is
+  // Gemini's trimmed OpenAPI Schema type and silently drops
+  // `additionalProperties: false`.
+  parametersJsonSchema: {
     type: "object",
     properties: {
       claims: {
@@ -706,15 +812,24 @@ const CLAIM_TOOL: Anthropic.Messages.Tool = {
   },
 };
 
-const DIAGNOSIS_INSTRUCTION = `Write the diagnosis.
+/**
+ * Both halves are spelled out as required, and the reason is empirical: under
+ * AUTO tool choice this model will sometimes answer with the function call
+ * alone, which is well-formed, cites correctly, and shows the student nothing.
+ * Naming the prose as the part they actually read is what stops that.
+ */
+const DIAGNOSIS_INSTRUCTION = `Write the diagnosis in two parts, in this order.
 
-First, in plain prose addressed to the student, explain what went wrong and
-why. Be specific and brief — a short paragraph, or one paragraph per distinct
-mistake. Do not restate the rubric, do not list the tests, and do not discuss
-marks.
+PART 1 — the explanation. In plain prose addressed to the student, explain what
+went wrong and why. Be specific and brief: a short paragraph, or one paragraph
+per distinct mistake. Do not restate the rubric, do not list the tests, and do
+not discuss marks. This prose is the only part of your answer the student sees,
+so it is never optional and must never be empty.
 
-Then call record_claims exactly once, with one claim per distinct failure you
-explained, each citing the failing test id that evidences it.`;
+PART 2 — the citations. Then call record_claims exactly once, with one claim per
+distinct failure you explained, each citing the failing test id that evidences
+it. These arguments are read by a validator, not shown to the student, so they
+are not a substitute for PART 1.`;
 
 interface DiagnosisDraft {
   summary: string;
@@ -725,14 +840,13 @@ interface DiagnosisDraft {
 /**
  * Stream the diagnosis.
  *
- * Prose arrives as text blocks and is forwarded to `onDelta` as it is
- * produced; the claims arrive as a single tool call whose JSON is accumulated
- * and parsed at the end. Splitting them this way is what lets the student
- * watch the explanation appear while the machine-checkable part stays
- * structured.
+ * Prose arrives as text parts and is forwarded to `onDelta` as it is produced;
+ * the claims arrive as one function call. Splitting them this way is what lets
+ * the student watch the explanation appear while the machine-checkable part
+ * stays structured.
  */
 async function writeDiagnosis(
-  client: Anthropic,
+  client: GoogleGenAI,
   req: DiagnoseRequest,
   evidence: string,
   verdict: TriageVerdict,
@@ -741,91 +855,71 @@ async function writeDiagnosis(
   let emittedAnyText = false;
 
   const run = async (): Promise<DiagnosisDraft> => {
-    const stream = await client.messages.create(
-      {
-        model: DIAGNOSIS_MODEL,
-        max_tokens: 2048,
-        system: buildSystemPrefix(req.assignment),
-        // Thinking is left at the model's default (adaptive). Disabling it on
-        // this model is documented to make tool calls occasionally arrive as
-        // plain text — the call silently never happens — which is exactly the
-        // failure mode that would strand our claims. `effort` is the cheaper
-        // lever and does not carry that risk.
-        output_config: { effort: "medium" },
-        tools: [CLAIM_TOOL],
-        tool_choice: { type: "auto", disable_parallel_tool_use: true },
-        messages: [
-          {
-            role: "user",
-            content:
-              `${evidence}\n\n` +
-              `A first-pass classifier labelled this "${verdict.category}"` +
-              (verdict.headline ? `: ${verdict.headline}` : "") +
-              `. Treat that as a hint, not a finding.\n\n` +
-              DIAGNOSIS_INSTRUCTION,
-          },
-        ],
-        stream: true,
+    const stream = await client.models.generateContentStream({
+      model: DIAGNOSIS_MODEL,
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text:
+                `${evidence}\n\n` +
+                `A first-pass classifier labelled this "${verdict.category}"` +
+                (verdict.headline ? `: ${verdict.headline}` : "") +
+                `. Treat that as a hint, not a finding.\n\n` +
+                DIAGNOSIS_INSTRUCTION,
+            },
+          ],
+        },
+      ],
+      config: {
+        abortSignal: signal,
+        systemInstruction: buildSystemPrefix(req.assignment),
+        maxOutputTokens: DIAGNOSIS_MAX_TOKENS,
+        // LOW rather than this model's default of HIGH. The reasoning that
+        // matters was done by the sandbox; what is left is reading a diff
+        // between expected and got and saying it well. Higher levels bought
+        // no better wording and spent both the deadline and the output rate.
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        tools: [{ functionDeclarations: [CLAIM_FUNCTION] }],
+        // AUTO, not ANY. ANY constrains the model to emit a function call and
+        // nothing else, which would take the prose — the actual product of
+        // this stage — away with it.
+        toolConfig: {
+          functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO },
+        },
       },
-      { signal },
-    );
+    });
 
     const textParts: string[] = [];
-    let toolJson = "";
-    let toolBlockIndex: number | null = null;
-    let usage: StageUsage = priceCall("diagnosis", DIAGNOSIS_MODEL, {});
-    let inputTokens = 0;
-    let cacheRead = 0;
-    let cacheWrite = 0;
+    let rawClaims: unknown[] = [];
+    let usage: GenerateContentResponseUsageMetadata | undefined;
 
-    for await (const event of stream) {
-      switch (event.type) {
-        case "message_start": {
-          const u = event.message.usage;
-          inputTokens = u.input_tokens ?? 0;
-          cacheRead = u.cache_read_input_tokens ?? 0;
-          cacheWrite = u.cache_creation_input_tokens ?? 0;
-          break;
+    for await (const chunk of stream) {
+      // Cumulative, and only complete on the final chunk, so the last one to
+      // arrive is the one that gets priced.
+      if (chunk.usageMetadata) usage = chunk.usageMetadata;
+
+      for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
+        if (part.thought) continue;
+
+        if (part.functionCall?.name === CLAIM_FUNCTION_NAME) {
+          rawClaims = extractClaims(part.functionCall.args);
+          continue;
         }
-        case "content_block_start": {
-          if (event.content_block.type === "tool_use") {
-            toolBlockIndex = event.index;
-          }
-          break;
+
+        if (typeof part.text === "string" && part.text.length > 0) {
+          textParts.push(part.text);
+          emittedAnyText = true;
+          req.onDelta?.(part.text);
         }
-        case "content_block_delta": {
-          if (event.delta.type === "text_delta") {
-            textParts.push(event.delta.text);
-            emittedAnyText = true;
-            req.onDelta?.(event.delta.text);
-          } else if (
-            event.delta.type === "input_json_delta" &&
-            event.index === toolBlockIndex
-          ) {
-            toolJson += event.delta.partial_json;
-          }
-          break;
-        }
-        case "message_delta": {
-          // Cumulative totals; the final message_delta carries the real ones.
-          usage = priceCall("diagnosis", DIAGNOSIS_MODEL, {
-            input_tokens: event.usage.input_tokens ?? inputTokens,
-            output_tokens: event.usage.output_tokens,
-            cache_read_input_tokens: event.usage.cache_read_input_tokens ?? cacheRead,
-            cache_creation_input_tokens:
-              event.usage.cache_creation_input_tokens ?? cacheWrite,
-          });
-          break;
-        }
-        default:
-          break;
       }
     }
 
     return {
       summary: textParts.join("").trim(),
-      rawClaims: parseToolClaims(toolJson),
-      usage,
+      rawClaims,
+      usage: priceCall("diagnosis", DIAGNOSIS_MODEL, usage),
     };
   };
 
@@ -834,19 +928,14 @@ async function writeDiagnosis(
   return withRetry(signal, run, () => !emittedAnyText);
 }
 
-function parseToolClaims(json: string): unknown[] {
-  if (json.trim().length === 0) return [];
-  try {
-    const parsed: unknown = JSON.parse(json);
-    if (typeof parsed !== "object" || parsed === null) return [];
-    const claims = (parsed as Record<string, unknown>).claims;
-    return Array.isArray(claims) ? claims : [];
-  } catch {
-    // A truncated tool call costs us the claims, not the prose. The student
-    // still sees the explanation; the rejected tray stays empty because there
-    // is nothing well-formed enough to display.
-    return [];
-  }
+/**
+ * A response that hits the output ceiling costs us the claims, not the prose.
+ * The student still sees the explanation; the rejected tray stays empty because
+ * there is nothing well-formed enough to display.
+ */
+function extractClaims(args: Record<string, unknown> | undefined): unknown[] {
+  const claims = args?.claims;
+  return Array.isArray(claims) ? claims : [];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -884,7 +973,8 @@ function buildIndex(assignment: Assignment, report: ScoreReport, code: string): 
  * This is where grounding actually happens. The prompt asks for citations; a
  * model that ignores the request, hallucinates a test id, or points at line 90
  * of a twelve-line file is caught here rather than published. Nothing about
- * this depends on the model having cooperated.
+ * this depends on the model having cooperated, and nothing about it changed
+ * when the provider did.
  */
 export function validateClaims(
   raw: unknown[],
@@ -994,6 +1084,10 @@ export function validateClaims(
  * Keyed by `failureSignature()` from lib/scoring.ts. Two students who make the
  * same mistake produce the same signature, so the class is billed once per
  * distinct misconception rather than once per student.
+ *
+ * With no explicit prompt cache on the Gemini path, this is the only saving
+ * this module makes by design — and it is the larger one, because it skips the
+ * call rather than discounting its prefix.
  *
  * Bounded and least-recently-used: a long-running server holds at most
  * MAX_CACHE_ENTRIES diagnoses, which is far more distinct failure patterns
@@ -1112,20 +1206,20 @@ function describeFailure(err: unknown, timedOut: boolean): string {
   if (timedOut) {
     return `The diagnosis took longer than ${DEADLINE_MS / 1000} seconds and was cancelled.`;
   }
-  if (err instanceof APIUserAbortError) return "The diagnosis was cancelled.";
-  if (err instanceof APIError) {
+  if (isAbort(err)) return "The diagnosis was cancelled.";
+  if (err instanceof ApiError) {
     if (err.status === 429) {
-      return "The Anthropic API is rate limiting this key. The grade is unaffected.";
+      return "The Gemini API is rate limiting this key. The grade is unaffected.";
     }
-    if (typeof err.status === "number" && err.status >= 500) {
-      return `The Anthropic API returned ${err.status}. The grade is unaffected.`;
+    if (err.status >= 500) {
+      return `The Gemini API returned ${err.status}. The grade is unaffected.`;
     }
     if (err.status === 401 || err.status === 403) {
-      return "The Anthropic API rejected this key. Check ANTHROPIC_API_KEY.";
+      return "The Gemini API rejected this key. Check GEMINI_API_KEY.";
     }
-    return `The Anthropic API returned an error: ${err.message}`;
+    return `The Gemini API returned an error: ${redact(err.message)}`;
   }
-  if (err instanceof Error) return `Could not reach the model: ${err.message}`;
+  if (err instanceof Error) return `Could not reach the model: ${redact(err.message)}`;
   return "Could not reach the model.";
 }
 
@@ -1155,7 +1249,7 @@ export async function diagnose(req: DiagnoseRequest): Promise<Diagnosis> {
   if (!apiKey) {
     return emptyDiagnosis(
       "unavailable",
-      "ANTHROPIC_API_KEY is not set on the server, so written explanations are off. " +
+      "GEMINI_API_KEY is not set on the server, so written explanations are off. " +
         "Execution, tests and scoring are unaffected.",
       Date.now() - started,
     );
@@ -1177,7 +1271,7 @@ export async function diagnose(req: DiagnoseRequest): Promise<Diagnosis> {
     );
     usage.push(triageUsage);
 
-    // A failure the interpreter already explained does not justify a frontier
+    // A failure the interpreter already explained does not justify the larger
     // model. The headline is streamed so the caller's rendering path is the
     // same either way.
     if (verdict.complexity === "trivial") {
