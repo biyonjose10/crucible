@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { motion } from "motion/react";
 import { MEDIAN } from "@/lib/assignment";
 import { useDiagnosis } from "@/lib/useDiagnosis";
@@ -36,12 +36,43 @@ export function StudentView({
     true,
   );
 
+  const panelRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
+    // Remember where focus came from so it can be handed back on close.
+    const opener = document.activeElement as HTMLElement | null;
+    panelRef.current?.querySelector<HTMLElement>("button")?.focus();
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+
+      // Keep Tab inside the dialog. Without this, focus walks into the queue
+      // behind it, which a screen reader still announces even though the
+      // dialog covers it visually.
+      const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
+        'button, [href], textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
+
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      opener?.focus?.();
+    };
   }, [onClose]);
 
   const failed = report.clauses.filter((c) => c.status !== "pass");
@@ -70,6 +101,7 @@ export function StudentView({
       initial={{ y: 12 }}
       animate={{ y: 0 }}
       transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+      ref={panelRef}
       className="fixed inset-0 z-50 overflow-y-auto bg-bg"
       role="dialog"
       aria-modal="true"

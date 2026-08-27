@@ -105,6 +105,7 @@ export function SubmissionCard({
   onToggle,
   onDiagnosis,
   onOpenStudentView,
+  cohortCount = 0,
 }: {
   row: Row;
   index: number;
@@ -112,6 +113,8 @@ export function SubmissionCard({
   onToggle: () => void;
   onDiagnosis?: (d: Diagnosis) => void;
   onOpenStudentView?: () => void;
+  /** Other submissions that failed in exactly the same way. */
+  cohortCount?: number;
 }) {
   const v = verdict(row.report);
   const isRunning = row.state === "running";
@@ -186,7 +189,15 @@ export function SubmissionCard({
           >
             {/* The instructor is looking at a queue; the student receives one
                 page. Same data, different question answered. */}
-            <div className="flex justify-end border-b border-line px-4 py-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2">
+              {cohortCount > 0 ? (
+                <p className="font-mono text-[10px] text-warn">
+                  {cohortCount} other {cohortCount === 1 ? "student" : "students"}{" "}
+                  failed in exactly this way
+                </p>
+              ) : (
+                <span />
+              )}
               <button
                 onClick={onOpenStudentView}
                 className="rounded-md border border-line-hi bg-surface-hi px-2.5 py-1

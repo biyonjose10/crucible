@@ -30,6 +30,13 @@ export interface GraderPoolOptions {
   execTimeoutMs?: number;
   /** Ceiling on interpreter boot. Exceeding it is a hard failure, not a hang. */
   bootTimeoutMs?: number;
+  /**
+   * Called as each interpreter finishes booting. Boot is the only part of this
+   * a user waits on, and a several-megabyte download with no feedback reads as
+   * a broken page — so the count is reported rather than guessed at with a
+   * timer.
+   */
+  onReady?: (ready: number, total: number) => void;
 }
 
 interface Slot {
@@ -47,11 +54,14 @@ export class GraderPool {
   private readonly size: number;
   private readonly execTimeoutMs: number;
   private readonly bootTimeoutMs: number;
+  private readonly onReady?: (ready: number, total: number) => void;
+  private readyCount = 0;
 
   constructor(options: GraderPoolOptions = {}) {
     this.size = options.size ?? 2;
     this.execTimeoutMs = options.execTimeoutMs ?? 5_000;
     this.bootTimeoutMs = options.bootTimeoutMs ?? 60_000;
+    this.onReady = options.onReady;
 
     for (let i = 0; i < this.size; i++) this.slots.push(this.createSlot());
   }
@@ -102,6 +112,11 @@ export class GraderPool {
         if (event.data?.type !== "ready") return;
         clearTimeout(timer);
         worker.removeEventListener("message", onMessage);
+        // Replacement workers must not inflate the count past the pool size.
+        if (this.readyCount < this.size) {
+          this.readyCount += 1;
+          this.onReady?.(this.readyCount, this.size);
+        }
         resolve();
       };
       worker.addEventListener("message", onMessage);

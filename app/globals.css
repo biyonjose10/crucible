@@ -93,3 +93,23 @@ body {
   scrollbar-width: thin;
   scrollbar-color: var(--border-hi) transparent;
 }
+
+/* Keyboard focus must be visible. The default ring is invisible against this
+   palette, and :focus-visible keeps it off mouse clicks. */
+:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}

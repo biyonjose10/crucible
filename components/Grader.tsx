@@ -9,6 +9,7 @@ import { CLASS, DISTINCT_ARCHETYPES, type Submission } from "@/fixtures/class";
 import { SubmissionCard } from "./SubmissionCard";
 import { StatBar } from "./StatBar";
 import { StudentView } from "./StudentView";
+import { TryYourOwn } from "./TryYourOwn";
 
 export type RowState = "queued" | "running" | "done";
 
@@ -30,6 +31,7 @@ export function Grader() {
   const poolRef = useRef<GraderPool | null>(null);
   const [booted, setBooted] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
+  const [boot, setBoot] = useState({ ready: 0, total: 2 });
   const [phase, setPhase] = useState<Phase>("idle");
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -39,6 +41,11 @@ export function Grader() {
   const [spend, setSpend] = useState({ usd: 0, calls: 0 });
   /** Submission id currently shown as the student would receive it. */
   const [studentView, setStudentView] = useState<string | null>(null);
+  /** A one-off submission typed by the visitor, graded the same way as the class. */
+  const [custom, setCustom] = useState<{
+    submission: Submission;
+    report: ScoreReport;
+  } | null>(null);
 
   const [rows, setRows] = useState<Row[]>(() =>
     CLASS.map((submission) => ({ submission, state: "queued" as const })),
@@ -48,7 +55,12 @@ export function Grader() {
   // Boot while the user is still reading the page, so that pressing the button
   // starts grading rather than starting a download.
   useEffect(() => {
-    const pool = new GraderPool({ size: 2, execTimeoutMs: 5_000, bootTimeoutMs: BOOT_TIMEOUT_MS });
+    const pool = new GraderPool({
+      size: 2,
+      execTimeoutMs: 5_000,
+      bootTimeoutMs: BOOT_TIMEOUT_MS,
+      onReady: (ready, total) => setBoot({ ready, total }),
+    });
     poolRef.current = pool;
 
     let cancelled = false;
@@ -112,6 +124,32 @@ export function Grader() {
     setPhase("complete");
   }, [phase]);
 
+  /**
+   * Grade a single piece of code the visitor wrote.
+   *
+   * Same pool, same tests, same scoring function as the seeded class — the
+   * point is that this path is not special. A fresh id per run keeps the
+   * diagnosis memo from serving the previous attempt's explanation.
+   */
+  const gradeOne = useCallback(async (code: string) => {
+    const pool = poolRef.current;
+    if (!pool) return;
+
+    const id = `you-${Date.now()}`;
+    const submission: Submission = {
+      id,
+      student: "You",
+      archetype: "custom",
+      code,
+    };
+
+    const outcome = await pool.run(id, code, MEDIAN.tests);
+    const report = score(MEDIAN, outcome);
+
+    setCustom({ submission, report });
+    setStudentView(id);
+  }, []);
+
   const stats = useMemo(() => {
     const done = rows.filter((r) => r.state === "done" && r.report);
     const graded = done.filter((r) => r.report!.status === "graded");
@@ -132,6 +170,59 @@ export function Grader() {
       mean: graded.length ? points / graded.length : 0,
       distinctFailures: signatures.size,
     };
+  }, [rows]);
+
+  /**
+   * How many submissions share each failure signature.
+   *
+   * This is the same hash that lets one diagnosis serve many students. Shown to
+   * the instructor it stops being an efficiency trick and becomes the useful
+   * question: which single mistake should Monday's lesson address.
+   */
+  const cohort = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      if (!r.report || !r.signature) continue;
+      if (r.report.earned === r.report.total) continue;
+      counts.set(r.signature, (counts.get(r.signature) ?? 0) + 1);
+    }
+    return counts;
+  }, [rows]);
+
+  /** Gradebook as CSV. Held in memory only — nothing is uploaded anywhere. */
+  const exportCsv = useCallback(() => {
+    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const header = [
+      "student",
+      "mark",
+      "out_of",
+      "status",
+      "failure_signature",
+      "runtime_ms",
+    ].join(",");
+    const body = rows
+      .filter((r) => r.report)
+      .map((r) =>
+        [
+          esc(r.submission.student),
+          r.report!.status === "inconclusive" ? "" : String(r.report!.earned),
+          String(r.report!.total),
+          r.report!.status,
+          esc(r.signature ?? ""),
+          String(r.durationMs ?? ""),
+        ].join(","),
+      )
+      .join("\n");
+
+    const blob = new Blob([header + "\n" + body + "\n"], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${MEDIAN.slug}-gradebook.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   }, [rows]);
 
   return (
@@ -191,9 +282,25 @@ export function Grader() {
                     ? "sandbox unavailable"
                     : booted
                       ? "no login · no API key · runs in your browser"
-                      : "booting CPython…"}
+                      : `starting Python… ${boot.ready}/${boot.total} ready`}
                 </span>
               </div>
+
+              {bootError && (
+                <div className="mt-8 max-w-xl rounded-lg border border-fail/30 bg-fail-dim px-4 py-3">
+                  <p className="font-mono text-[12px] text-fail">
+                    The Python sandbox could not start.
+                  </p>
+                  <p className="mt-1.5 text-[12px] leading-relaxed text-muted">
+                    Crucible downloads a real CPython interpreter (about 13 MB)
+                    and runs it in your browser, so a blocked or very slow
+                    connection will stop it. Reloading usually fixes it.
+                  </p>
+                  <p className="mt-2 font-mono text-[11px] text-faint">
+                    {bootError}
+                  </p>
+                </div>
+              )}
 
               <dl className="mt-16 grid grid-cols-2 sm:grid-cols-4 gap-px bg-line rounded-lg overflow-hidden border border-line">
                 {[
@@ -210,9 +317,29 @@ export function Grader() {
                   </div>
                 ))}
               </dl>
+
+              <TryYourOwn onGrade={gradeOne} disabled={!booted || !!bootError} />
             </motion.section>
           ) : (
             <section key="queue" className="pt-8">
+              {phase === "complete" && (
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-[12px] text-muted">
+                    {stats.done - stats.inconclusive} marked from{" "}
+                    <span className="text-ink">{stats.distinctFailures}</span>{" "}
+                    distinct mistakes.
+                  </p>
+                  <button
+                    onClick={exportCsv}
+                    className="rounded-md border border-line-hi bg-surface-hi px-2.5 py-1
+                               font-mono text-[10px] text-muted transition-colors
+                               hover:border-ink/30 hover:text-ink"
+                  >
+                    Export gradebook (.csv)
+                  </button>
+                </div>
+              )}
+
               <div className="flex flex-col gap-2">
                 {rows.map((row, i) => (
                   <SubmissionCard
@@ -224,6 +351,9 @@ export function Grader() {
                       setExpanded((cur) =>
                         cur === row.submission.id ? null : row.submission.id,
                       )
+                    }
+                    cohortCount={
+                      row.signature ? (cohort.get(row.signature) ?? 0) - 1 : 0
                     }
                     onOpenStudentView={() => setStudentView(row.submission.id)}
                     onDiagnosis={(d) => {
@@ -242,12 +372,21 @@ export function Grader() {
       </main>
 
       {(() => {
-        const row = rows.find((r) => r.submission.id === studentView);
-        if (!row?.report) return null;
+        if (!studentView) return null;
+        const pair =
+          custom?.submission.id === studentView
+            ? custom
+            : (() => {
+                const row = rows.find((r) => r.submission.id === studentView);
+                return row?.report
+                  ? { submission: row.submission, report: row.report }
+                  : null;
+              })();
+        if (!pair) return null;
         return (
           <StudentView
-            submission={row.submission}
-            report={row.report}
+            submission={pair.submission}
+            report={pair.report}
             onClose={() => setStudentView(null)}
           />
         );
