@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+#
+# Refuse to commit anything that looks like a credential.
+#
+# This repo is public, and the Gemini key it runs on is shared with two other
+# live projects and cannot be quickly rotated — a leak here would mean taking
+# all three down. So the check is deliberately blunt: it blocks on pattern
+# match rather than trying to be clever, and it errs toward false positives.
+#
+# Enabled by `git config core.hooksPath .githooks` (run scripts/setup-hooks.sh).
+# Bypass only with --no-verify, and only if you are certain.
+
+set -euo pipefail
+
+fail=0
+red() { printf '\033[31m%s\033[0m\n' "$1"; }
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+# 1. No env files, ever. .gitignore already covers these, but a `git add -f`
+#    would sail straight past it.
+while IFS= read -r file; do
+  case "$(basename "$file")" in
+    .env|.env.*|*.env)
+      red "BLOCKED: $file is an environment file and must never be committed."
+      fail=1
+      ;;
+  esac
+done <<< "$staged"
+
+# 2. Credential-shaped strings in the staged content itself. The Google key
+#    pattern is the one that matters here; the others are cheap insurance.
+#    Note we scan the staged diff, not the working tree — that is what is
+#    actually about to enter history.
+patterns=(
+  'AIza[0-9A-Za-z_-]{35}'          # Google / Gemini API key
+  'sk-ant-[0-9A-Za-z_-]{20,}'      # Anthropic
+  'sk-[0-9A-Za-z]{32,}'            # generic OpenAI-style
+  'ghp_[0-9A-Za-z]{36}'            # GitHub personal access token
+  '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+)
+
+for pattern in "${patterns[@]}"; do
+  # --cached scans what is staged. Filenames only: never echo the secret.
+  if hits=$(git diff --cached -U0 -G"$pattern" --name-only); then
+    if [ -n "$hits" ]; then
+      red "BLOCKED: a credential-shaped string was found in:"
+      printf '  %s\n' $hits
+      red "Pattern: $pattern"
+      fail=1
+    fi
+  fi
+done
+
+if [ "$fail" -ne 0 ]; then
+  echo
+  red "Commit refused. Move the value into .env.local (already gitignored)."
+  echo "If this is genuinely a false positive: git commit --no-verify"
+  exit 1
+fi
+
+exit 0
