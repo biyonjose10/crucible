@@ -74,6 +74,20 @@ Because the repo is public:
 - Note: `GEMINI_API_KEY` is *also* set as a Windows User-scope env var, which
   can mask a missing `.env.local` during testing.
 
+## Known, accepted risk — no rate limiting
+
+`/api/diagnose` is public, accepts arbitrary code, and calls Gemini on every
+request with no per-visitor limit, no body-size cap and no daily spend ceiling.
+Each call costs roughly $0.003 on a **real billing account**, using the shared
+`...HMPA` key that cannot be quickly rotated. A scripted caller could run up a
+material bill, and the only remedy would be deleting a key three projects
+depend on.
+
+This was raised on 2026-08-27 and the user chose not to fix it before the
+deadline. Do not silently re-litigate it — but if abuse actually appears, the
+fix is a per-IP limit plus a daily spend ceiling that degrades to the existing
+`unavailable: true` path, which is already built and tested.
+
 ## Commands
 
 ```
