@@ -165,7 +165,7 @@ export function SubmissionCard({
           </span>
         )}
 
-        <span className={`font-mono text-xs w-28 text-right shrink-0 ${v.tone}`}>
+        <span className={`font-mono text-xs w-20 sm:w-28 text-right shrink-0 ${v.tone}`}>
           {isRunning ? "running…" : v.label}
         </span>
 

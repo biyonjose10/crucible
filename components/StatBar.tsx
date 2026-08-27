@@ -19,9 +19,23 @@ interface Props {
   spend: { usd: number; calls: number };
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
+function Stat({
+  label,
+  value,
+  tone,
+  minor,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+  /** Dropped on narrow screens. Six columns do not fit on a phone, and these
+   *  are the ones a reader can live without. */
+  minor?: boolean;
+}) {
   return (
-    <div className="flex flex-col items-end leading-none">
+    <div
+      className={`${minor ? "hidden sm:flex" : "flex"} flex-col items-end leading-none`}
+    >
       <span className="text-[10px] uppercase tracking-wider text-faint">{label}</span>
       <span className={`mt-1 font-mono text-sm ${tone ?? "text-ink"}`}>{value}</span>
     </div>
@@ -64,18 +78,21 @@ export function StatBar({
         </div>
 
         {phase !== "idle" && (
-          <div className="flex items-center gap-5 sm:gap-7">
+          <div className="flex items-center gap-4 sm:gap-7">
             <Stat label="Graded" value={`${stats.done}/${stats.total}`} />
             <Stat
+              minor
               label="Mean"
               value={stats.done ? `${stats.mean.toFixed(1)}/10` : "—"}
             />
             <Stat
+              minor
               label="Review"
               value={String(stats.inconclusive)}
               tone={stats.inconclusive ? "text-warn" : "text-faint"}
             />
             <Stat
+              minor
               label="Distinct"
               value={String(stats.distinctFailures)}
               tone="text-muted"
