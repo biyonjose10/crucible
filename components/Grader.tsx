@@ -12,6 +12,7 @@ import { StatBar } from "./StatBar";
 import { StudentView } from "./StudentView";
 import { TryYourOwn } from "./TryYourOwn";
 import { ClassInsights } from "./ClassInsights";
+import { toCsv } from "@/lib/gradebook";
 
 export type RowState = "queued" | "running" | "done";
 
@@ -241,32 +242,18 @@ export function Grader({
 
   /** Gradebook as CSV. Held in memory only — nothing is uploaded anywhere. */
   const exportCsv = useCallback(() => {
-    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
-    const header = [
-      "student",
-      "mark",
-      "out_of",
-      "status",
-      "failure_signature",
-      "runtime_ms",
-    ].join(",");
-    const body = rows
-      .filter((r) => r.report)
-      .map((r) =>
-        [
-          esc(r.submission.student),
-          r.report!.status === "inconclusive" ? "" : String(r.report!.earned),
-          String(r.report!.total),
-          r.report!.status,
-          esc(r.signature ?? ""),
-          String(r.durationMs ?? ""),
-        ].join(","),
-      )
-      .join("\n");
+    const csv = toCsv(
+      rows
+        .filter((r) => r.report)
+        .map((r) => ({
+          student: r.submission.student,
+          report: r.report!,
+          signature: r.signature,
+          durationMs: r.durationMs,
+        })),
+    );
 
-    const blob = new Blob([header + "\n" + body + "\n"], {
-      type: "text/csv;charset=utf-8",
-    });
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
