@@ -8,6 +8,7 @@ import { failureSignature, score, type ScoreReport } from "@/lib/scoring";
 import { CLASS, DISTINCT_ARCHETYPES, type Submission } from "@/fixtures/class";
 import { SubmissionCard } from "./SubmissionCard";
 import { StatBar } from "./StatBar";
+import { StudentView } from "./StudentView";
 
 export type RowState = "queued" | "running" | "done";
 
@@ -36,6 +37,8 @@ export function Grader() {
   // Real spend, accumulated from API usage. Reused diagnoses are not counted
   // again — that reuse is exactly what keeps the number small.
   const [spend, setSpend] = useState({ usd: 0, calls: 0 });
+  /** Submission id currently shown as the student would receive it. */
+  const [studentView, setStudentView] = useState<string | null>(null);
 
   const [rows, setRows] = useState<Row[]>(() =>
     CLASS.map((submission) => ({ submission, state: "queued" as const })),
@@ -222,6 +225,7 @@ export function Grader() {
                         cur === row.submission.id ? null : row.submission.id,
                       )
                     }
+                    onOpenStudentView={() => setStudentView(row.submission.id)}
                     onDiagnosis={(d) => {
                       if (d.cached || d.unavailable) return;
                       setSpend((s) => ({
@@ -236,6 +240,18 @@ export function Grader() {
           )}
         </AnimatePresence>
       </main>
+
+      {(() => {
+        const row = rows.find((r) => r.submission.id === studentView);
+        if (!row?.report) return null;
+        return (
+          <StudentView
+            submission={row.submission}
+            report={row.report}
+            onClose={() => setStudentView(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

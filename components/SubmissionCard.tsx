@@ -104,12 +104,14 @@ export function SubmissionCard({
   expanded,
   onToggle,
   onDiagnosis,
+  onOpenStudentView,
 }: {
   row: Row;
   index: number;
   expanded: boolean;
   onToggle: () => void;
   onDiagnosis?: (d: Diagnosis) => void;
+  onOpenStudentView?: () => void;
 }) {
   const v = verdict(row.report);
   const isRunning = row.state === "running";
@@ -182,6 +184,19 @@ export function SubmissionCard({
             transition={{ duration: 0.28, ease: EASE }}
             className="overflow-hidden border-t border-line"
           >
+            {/* The instructor is looking at a queue; the student receives one
+                page. Same data, different question answered. */}
+            <div className="flex justify-end border-b border-line px-4 py-2">
+              <button
+                onClick={onOpenStudentView}
+                className="rounded-md border border-line-hi bg-surface-hi px-2.5 py-1
+                           font-mono text-[10px] text-muted transition-colors
+                           hover:border-ink/30 hover:text-ink"
+              >
+                See what the student receives ›
+              </button>
+            </div>
+
             <DiagnosisPanel
               submissionId={row.submission.id}
               code={row.submission.code}
