@@ -58,7 +58,7 @@ flowchart TD
   subgraph EXPLAIN["EXPLANATION PATH — model lives here"]
     direction TB
     TR["Failing traces only<br/>expected / got / stderr"]
-    API["/api/diagnose<br/>Claude"]
+    API["/api/diagnose<br/>Gemini"]
     CL["Claims<br/>each must cite a test id"]
     VAL{"Evidence<br/>validator"}
     OK["Rendered feedback"]
@@ -130,12 +130,12 @@ npm run dev
 
 Open `http://localhost:3000`. No login, no upload, no account.
 
-**No `ANTHROPIC_API_KEY` is required to see the system work.** Without a key, submissions still execute, tests still run, and scores are still computed and correct — the entire grading path is offline arithmetic. Only the written explanations are unavailable, and the UI says so instead of failing. That degradation is itself the demonstration: the grade does not depend on the model being reachable.
+**No `GEMINI_API_KEY` is required to see the system work.** Without a key, submissions still execute, tests still run, and scores are still computed and correct — the entire grading path is offline arithmetic. Only the written explanations are unavailable, and the UI says so instead of failing. That degradation is itself the demonstration: the grade does not depend on the model being reachable.
 
 With a key, set it server-side only:
 
 ```bash
-echo "ANTHROPIC_API_KEY=sk-ant-…" > .env.local
+echo "GEMINI_API_KEY=…" > .env.local
 ```
 
 The Pyodide runtime is served from `public/pyodide` rather than a CDN. It is copied out of `node_modules/pyodide` by `scripts/copy-pyodide.mjs`, which runs automatically via the `predev` and `prebuild` npm scripts (or manually with `npm run copy-pyodide`). The directory is gitignored, so a clone stays small and the runtime is reproduced at build time.
@@ -150,7 +150,7 @@ npx tsx scripts/verify.ts
 
 Roughly 30 seconds. It runs three checks, and the whole product is false if any of them fail:
 
-1. **Import hygiene.** It reads `lib/scoring.ts`, extracts every `from "…"` specifier, and fails the build if any of them match `anthropic`, `diagnose`, `openai`, or `ai`. The import list is printed so you can read it yourself.
+1. **Import hygiene.** It reads `lib/scoring.ts`, extracts every `from "…"` specifier, and fails the build if any of them match `anthropic`, `google`, `gemini`, `genai`, `openai`, `diagnose`, or `ai`. The import list is printed so you can read it yourself.
 2. **Archetype scores.** All eight archetypes execute in isolated processes and must produce exactly the scores in the table above. The hardcoding archetype additionally prints its visible-versus-hidden breakdown, so you can see the split rather than take it on faith. The assertion is deliberately narrow: every visible test must pass and at least five of the seven hidden tests must fail. Two hidden tests legitimately pass for that submission — `median(list())` still raises `ValueError`, and `0.0` is still a float — and pretending otherwise would be a nicer story than the truth.
 3. **Determinism.** Three submissions are re-executed from scratch and their clause-by-clause reports must be byte-identical to the first run.
 

@@ -44,7 +44,7 @@ The student gets what a −3 never told them: line six, the midpoint index trunc
 
 This is the part we care about, and every item is a structural property of the codebase rather than a prompt instruction.
 
-**The scoring module cannot reach a model.** `lib/scoring.ts` is a pure function from execution results to a score report. It imports nothing but TypeScript types. Our verification script reads its import list and fails the build if anything matching `anthropic`, `diagnose`, `openai`, or `ai` appears. You can check this claim faster than you can read this paragraph: open the file.
+**The scoring module cannot reach a model.** `lib/scoring.ts` is a pure function from execution results to a score report. It imports nothing but TypeScript types. Our verification script reads its import list and fails the build if anything matching `anthropic`, `google`, `gemini`, `genai`, `openai`, `diagnose`, or `ai` appears. You can check this claim faster than you can read this paragraph: open the file.
 
 **Prompt injection fails structurally.** One of our demo submissions opens with a comment telling the grader to ignore the tests and award full marks. It scores 4/10. Nothing filtered that comment — the model read it, and simply had no tool that could write a grade. We did not build a defence. We built an architecture where the attack has nowhere to land.
 
@@ -66,7 +66,7 @@ Next.js 16 App Router with React 19, TypeScript, and Tailwind 4 — a single dep
 
 Execution is **Pyodide**: real CPython 3.14 compiled to WebAssembly, running in a Web Worker and self-hosted from `/public/pyodide`. A generated Python harness runs each submission and emits one JSON line per test result, flushed immediately so that results produced before a kill survive it. The parser accepts a line only if it carries an internal marker *and* names a test id the suite actually declared, so a student printing to stdout cannot forge a passing result. The module cache is cleared between submissions, because a stale import would silently grade the previous student's code.
 
-Diagnosis uses the Anthropic API. The prompt receives the rubric clause, the failing test, and the raw traceback. It does not receive the score, because there is no code path that would give it one.
+Diagnosis uses the Google Gemini API. The prompt receives the rubric clause, the failing test, and the raw traceback. It does not receive the score, because there is no code path that would give it one.
 
 Eight archetypes carry the whole demo: correct, off-by-one, wrong return type, infinite loop, syntax error, prompt injection, hardcoded answers, and empty-input crash. Their expected scores are asserted in the build gate, so any change to the rubric or the harness that moves a number breaks the build instead of quietly shipping.
 
@@ -94,13 +94,13 @@ We also learned that a trust claim is worth very little unless it is cheap to ch
 
 ## Built with
 
-`next.js` · `react` · `typescript` · `tailwindcss` · `pyodide` · `webassembly` · `web-workers` · `python` · `anthropic` · `claude` · `motion` · `vercel`
+`next.js` · `react` · `typescript` · `tailwindcss` · `pyodide` · `webassembly` · `web-workers` · `python` · `google-gemini` · `motion` · `vercel`
 
 Full list for the "Built With" field:
 
 ```
 next.js, react, typescript, tailwindcss, pyodide, webassembly, web-workers,
-python, anthropic-claude, node.js, vercel
+python, google-gemini, node.js, vercel
 ```
 
 ---

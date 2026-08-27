@@ -72,7 +72,12 @@ async function main() {
   // ── 1. Import hygiene ──────────────────────────────────────────────────────
   const scoringSrc = readFileSync("lib/scoring.ts", "utf8");
   const imports = [...scoringSrc.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
-  const forbidden = imports.filter((i) => /anthropic|diagnose|openai|ai/i.test(i));
+  // Names the provider actually in use plus the obvious alternatives, so the
+  // check stays deliberate if the provider is ever swapped again. `genai` would
+  // be caught by the bare `ai` alternative anyway; listing it is the point.
+  const forbidden = imports.filter((i) =>
+    /anthropic|diagnose|google|gemini|genai|openai|ai/i.test(i),
+  );
   console.log("\n[1] lib/scoring.ts import hygiene");
   console.log(`    imports: ${imports.join(", ") || "(none)"}`);
   if (forbidden.length) fail(`scoring.ts reaches a model: ${forbidden.join(", ")}`);
