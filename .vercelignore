@@ -1,0 +1,12 @@
+# Never upload local secrets — Vercel injects env vars from its own store.
+.env
+.env.*
+*.env
+
+# Regenerated on the build machine by `prebuild` (scripts/copy-pyodide.mjs),
+# so shipping ~13.5MB of WASM through the upload is wasted time.
+public/pyodide
+
+node_modules
+.next
+.git
