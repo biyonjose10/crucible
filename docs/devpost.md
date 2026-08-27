@@ -60,6 +60,12 @@ This is the part we care about, and every item is a structural property of the c
 
 And the honest caveat, since we would rather say it than have it asked: the model can be wrong about the diagnosis. It cannot be wrong about the score. A wrong explanation is cheap and a student can see through it. A wrong grade is expensive and invisible.
 
+**It answers the teacher's next question too.** Once a class is marked, the useful number is not the average — it is which single misconception is worth a lesson. Crucible counts the same clause results across the cohort and says so plainly: eleven of thirty missed the even-length midpoint.
+
+**And it proves its own claim on screen.** A panel on the landing page reads the import list of `lib/scoring.ts` out of the file at build time and displays it. It says `./types`. Wiring a model into the grading path would change what the visitor is reading.
+
+**You do not have to take the demo's word for any of it.** There is a box on the landing page. Paste your own Python, press the button, and it runs through the same sandbox, the same tests and the same scoring function as the seeded class.
+
 ## How we built it
 
 Next.js 16 App Router with React 19, TypeScript, and Tailwind 4 — a single deployment, no separate backend service.
