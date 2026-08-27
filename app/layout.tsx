@@ -18,7 +18,15 @@ export const metadata: Metadata = {
     "An AI code grader where the sandbox computes the score and the model only explains it. Grade a class of 30 with no login and no API key.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+// Typed explicitly rather than with Next's generated `LayoutProps`. That global
+// only exists after a build has written .next/types, so depending on it makes
+// `tsc --noEmit` fail on a clean clone — which is exactly how CI, and anyone
+// evaluating this repo, first encounters it.
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html
       lang="en"
