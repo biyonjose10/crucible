@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Pyodide runtime is copied from node_modules at build time
+/public/pyodide
+
+# Python bytecode from local harness checks
+__pycache__/
+harness_out.py
