@@ -162,9 +162,26 @@ export async function POST(request: Request): Promise<Response> {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       let closed = false;
-      const send = (event: string, data: unknown) => {
-        if (closed) return;
-        controller.enqueue(encoder.encode(sseEvent(event, data)));
+      /**
+       * Write one SSE frame, tolerating a consumer that has already gone away.
+       *
+       * `closed` only tracks our own teardown. If the client disconnects,
+       * `enqueue` throws on a cancelled controller — and because the catch
+       * below also calls `send`, that threw a second time *out of* the catch,
+       * and `controller.close()` in the finally threw a third. The rejection
+       * escaped `start()` entirely. A disconnected reader is the most ordinary
+       * event on a streaming endpoint and must not produce that.
+       */
+      const send = (event: string, data: unknown): boolean => {
+        if (closed) return false;
+        try {
+          controller.enqueue(encoder.encode(sseEvent(event, data)));
+          return true;
+        } catch {
+          // The consumer is gone. Stop writing; there is nobody to tell.
+          closed = true;
+          return false;
+        }
       };
 
       try {
@@ -197,7 +214,12 @@ export async function POST(request: Request): Promise<Response> {
         });
       } finally {
         closed = true;
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // Already closed or cancelled by the consumer. Nothing to do, and
+          // certainly nothing worth throwing out of a finally block.
+        }
       }
     },
   });

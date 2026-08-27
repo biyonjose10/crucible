@@ -37,6 +37,7 @@ import type {
 
 import type { Assignment, TestResult } from "./types";
 import type { ScoreReport } from "./scoring";
+import { mentionsUnknownIdentifier } from "./prose-guard";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Models and prices
@@ -904,7 +905,10 @@ async function writeDiagnosis(
         if (part.thought) continue;
 
         if (part.functionCall?.name === CLAIM_FUNCTION_NAME) {
-          rawClaims = extractClaims(part.functionCall.args);
+          // Accumulate. AUTO tool mode does not constrain the model to a single
+          // call, and overwriting meant an earlier batch of claims vanished
+          // without even reaching the rejected tray.
+          rawClaims = [...rawClaims, ...extractClaims(part.functionCall.args)];
           continue;
         }
 
@@ -1144,7 +1148,7 @@ export async function diagnoseCached(
   const key = cacheKey(req.assignment.slug, signature);
   const hit = getCachedDiagnosis(key);
 
-  if (hit) {
+  if (hit && !mentionsUnknownIdentifier(hit.summary, req.code)) {
     const index = buildIndex(req.assignment, req.report, req.code);
     const { claims, rejected } = validateClaims(hit.claims, index);
     // Replay the prose so a streaming caller sees the same thing on a cache

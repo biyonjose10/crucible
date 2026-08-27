@@ -47,7 +47,7 @@ interface Slot {
 
 export class GraderPool {
   private slots: Slot[] = [];
-  private waiters: Array<(slot: Slot) => void> = [];
+  private waiters: Array<(slot: Slot | null) => void> = [];
   private jobSeq = 0;
   private disposed = false;
 
@@ -83,6 +83,11 @@ export class GraderPool {
     tests: TestCase[],
   ): Promise<ExecutionOutcome> {
     const slot = await this.acquire();
+    if (!slot) {
+      // The pool was disposed while this call was queued. Report it the same
+      // way as any other failure to execute: inconclusive, never guessed at.
+      return parseOutcome(submissionId, tests, [], 0, "worker_error", "");
+    }
     try {
       return await this.exec(slot, submissionId, code, tests);
     } finally {
@@ -95,7 +100,13 @@ export class GraderPool {
     this.disposed = true;
     for (const slot of this.slots) slot.worker.terminate();
     this.slots = [];
+
+    // Settle everyone still queued. Dropping the array left their promises
+    // pending forever, so an unmount mid-run left `Promise.all` in the caller
+    // hanging and the run never reached "complete".
+    const stranded = this.waiters;
     this.waiters = [];
+    for (const resolve of stranded) resolve(null);
   }
 
   // ── internals ────────────────────────────────────────────────────────────
@@ -109,6 +120,20 @@ export class GraderPool {
         this.bootTimeoutMs,
       );
       const onMessage = (event: MessageEvent) => {
+        // The worker reports a failed Pyodide load as an error with no job id.
+        // Only listening for "ready" meant a blocked or missing runtime sat
+        // silently until the boot timeout — ninety seconds of a disabled
+        // button before the real reason surfaced.
+        if (event.data?.type === "error" && event.data?.jobId == null) {
+          clearTimeout(timer);
+          worker.removeEventListener("message", onMessage);
+          reject(
+            new Error(
+              String(event.data.message ?? "The sandbox interpreter failed to load."),
+            ),
+          );
+          return;
+        }
         if (event.data?.type !== "ready") return;
         clearTimeout(timer);
         worker.removeEventListener("message", onMessage);
@@ -126,13 +151,15 @@ export class GraderPool {
     return { worker, ready, busy: false };
   }
 
-  private acquire(): Promise<Slot> {
+  /** Resolves null once the pool is disposed — there will never be a slot. */
+  private acquire(): Promise<Slot | null> {
+    if (this.disposed) return Promise.resolve(null);
     const free = this.slots.find((s) => !s.busy);
     if (free) {
       free.busy = true;
       return Promise.resolve(free);
     }
-    return new Promise<Slot>((resolve) => this.waiters.push(resolve));
+    return new Promise<Slot | null>((resolve) => this.waiters.push(resolve));
   }
 
   private pump(): void {
