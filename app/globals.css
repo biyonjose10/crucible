@@ -1,26 +1,95 @@
 @import "tailwindcss";
 
+/**
+ * Crucible's palette is deliberately almost monochrome.
+ *
+ * Colour is reserved for status — pass, fail, inconclusive — so that a glance
+ * at the grading queue reads as data rather than decoration. Everything else
+ * is greyscale. Nothing is coloured just to look lively.
+ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #08090a;
+  --surface: #0e1012;
+  --surface-hi: #14171a;
+  --border: #1c2024;
+  --border-hi: #2a3036;
+
+  --text: #e8eaec;
+  --text-muted: #8b9299;
+  --text-faint: #5a6169;
+
+  --pass: #34d399;
+  --pass-dim: #34d3991a;
+  --fail: #fb7185;
+  --fail-dim: #fb71851a;
+  --warn: #fbbf24;
+  --warn-dim: #fbbf241a;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-hi: var(--surface-hi);
+  --color-line: var(--border);
+  --color-line-hi: var(--border-hi);
+
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+
+  --color-pass: var(--pass);
+  --color-pass-dim: var(--pass-dim);
+  --color-fail: var(--fail);
+  --color-fail-dim: var(--fail-dim);
+  --color-warn: var(--warn);
+  --color-warn-dim: var(--warn-dim);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  /* Numbers must not reflow as they count up. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* The shimmer used while a submission is executing. */
+@keyframes crucible-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.06) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: crucible-shimmer 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer {
+    animation: none;
+  }
+}
+
+::selection {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* Scrollbars, so long panes do not look like a different application. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-hi) transparent;
 }

@@ -1,5 +1,8 @@
 import type { TestCase } from "./types";
 
+export const SOLUTION_DIR = "/home/pyodide";
+export const SOLUTION_PATH = `${SOLUTION_DIR}/solution.py`;
+
 /** Marker prefix for machine-readable lines on stdout. */
 export const EMIT = "@@CRU@@";
 
@@ -14,7 +17,7 @@ const MAX_TRACE = 2000;
  * produced before the kill still survives. Tests that never reported are
  * scored "inconclusive" — never assumed to pass, never assumed to fail.
  */
-export function buildHarness(tests: TestCase[]): string {
+function buildTestBody(tests: TestCase[]): string {
   const payload = JSON.stringify(
     tests.map((t) => ({ id: t.id, expr: t.expr, kind: t.kind, expected: t.expected })),
   );
@@ -73,4 +76,34 @@ else:
                 _emit({"kind": "result", "id": t["id"], "status": "pass" if ok else "fail",
                        "got": repr(value), "expected": repr(t["expected"])})
 `;
+}
+
+/**
+ * Build a complete, self-contained Python program for one submission.
+ *
+ * Everything the sandbox needs is in this string: the student's code, the
+ * module reset, and the test harness. That keeps the Web Worker completely
+ * generic — it knows how to run Python and nothing about grading — so the
+ * browser and the Node verification path execute byte-identical programs.
+ *
+ * The student's source is embedded via json.loads rather than interpolated
+ * into a literal, so no combination of quotes, backslashes or newlines in a
+ * submission can break out of the string and alter the harness.
+ */
+export function buildProgram(solution: string, tests: TestCase[]): string {
+  const embedded = JSON.stringify(JSON.stringify(solution));
+
+  const preamble = [
+    "import json, sys",
+    `SOLUTION = json.loads(${embedded})`,
+    `with open("${SOLUTION_PATH}", "w") as _f:`,
+    "    _f.write(SOLUTION)",
+    `if "${SOLUTION_DIR}" not in sys.path:`,
+    `    sys.path.insert(0, "${SOLUTION_DIR}")`,
+    // A module cached from a previous submission would silently grade the
+    // wrong student's code.
+    'sys.modules.pop("solution", None)',
+  ].join("\n");
+
+  return preamble + buildTestBody(tests);
 }

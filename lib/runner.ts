@@ -1,14 +1,11 @@
-import { buildHarness, EMIT } from "./harness";
+import { buildProgram, EMIT } from "./harness";
 import type { ExecutionOutcome, TestCase, TestResult } from "./types";
 
 /** The subset of the Pyodide API we depend on. */
 export interface PyodideLike {
-  FS: { writeFile(path: string, data: string, opts: { encoding: "utf8" }): void };
   runPython(code: string): unknown;
   setStdout(options: { batched: (line: string) => void }): void;
 }
-
-const SOLUTION_PATH = "/home/pyodide/solution.py";
 
 /**
  * Execute one submission against the test suite.
@@ -22,18 +19,8 @@ export function runSubmission(
   tests: TestCase[],
   onLine: (line: string) => void,
 ): void {
-  py.FS.writeFile(SOLUTION_PATH, code, { encoding: "utf8" });
-
-  // Fresh import every time: a module cached from a previous submission would
-  // silently grade the wrong student's code.
-  py.runPython(
-    `import sys\n` +
-      `if "/home/pyodide" not in sys.path: sys.path.insert(0, "/home/pyodide")\n` +
-      `sys.modules.pop("solution", None)\n`,
-  );
-
   py.setStdout({ batched: onLine });
-  py.runPython(buildHarness(tests));
+  py.runPython(buildProgram(code, tests));
 }
 
 /**
