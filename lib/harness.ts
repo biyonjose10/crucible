@@ -32,7 +32,11 @@ def _emit(o):
     print("${EMIT}" + json.dumps(o), flush=True)
 
 def _trace():
-    t = traceback.format_exc()
+    raw = traceback.format_exc().split("\\n")
+    # Drop our own frames. A student debugging their code should see their
+    # file and their line numbers, not the scaffolding that called them.
+    kept = [ln for ln in raw if '"<exec>"' not in ln and '"<string>"' not in ln]
+    t = "\\n".join(kept)
     return t[:MAX_TRACE] + (" ... [truncated]" if len(t) > MAX_TRACE else "")
 
 def _same(got, expected):

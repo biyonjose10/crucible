@@ -46,3 +46,6 @@ next-env.d.ts
 # Python bytecode from local harness checks
 __pycache__/
 harness_out.py
+
+# Dev server log
+dev.log

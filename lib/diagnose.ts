@@ -43,7 +43,7 @@ export const TRIAGE_MODEL = "claude-haiku-4-5";
  * explanation rather than a label — the pedagogy case, where the wording is
  * the entire product.
  */
-export const DIAGNOSIS_MODEL = "claude-opus-5";
+export const DIAGNOSIS_MODEL = "claude-sonnet-5";
 
 interface ModelPrice {
   /** USD per million input tokens. */
@@ -58,7 +58,9 @@ interface ModelPrice {
  */
 const PRICES: Record<string, ModelPrice> = {
   [TRIAGE_MODEL]: { input: 1.0, output: 5.0 },
-  [DIAGNOSIS_MODEL]: { input: 5.0, output: 25.0 },
+  // List price. Sonnet 5 is on introductory pricing ($2/$10) until 2026-08-31;
+  // we quote list so the counter does not start under-reporting in September.
+  [DIAGNOSIS_MODEL]: { input: 3.0, output: 15.0 },
 };
 
 /** Cache reads bill at a tenth of the base input rate. */
