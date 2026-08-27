@@ -10,6 +10,7 @@ import { SubmissionCard } from "./SubmissionCard";
 import { StatBar } from "./StatBar";
 import { StudentView } from "./StudentView";
 import { TryYourOwn } from "./TryYourOwn";
+import { ClassInsights } from "./ClassInsights";
 
 export type RowState = "queued" | "running" | "done";
 
@@ -27,7 +28,16 @@ type Phase = "idle" | "grading" | "complete";
 /** How long the interpreter is given to boot before we admit something is wrong. */
 const BOOT_TIMEOUT_MS = 90_000;
 
-export function Grader() {
+export function Grader({
+  /**
+   * The real import list of lib/scoring.ts, read at build time in app/page.tsx.
+   * Rendered so the page can show the evidence for its own central claim rather
+   * than only asserting it.
+   */
+  scoringImports = [],
+}: {
+  scoringImports?: string[];
+}) {
   const poolRef = useRef<GraderPool | null>(null);
   const [booted, setBooted] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
@@ -189,6 +199,26 @@ export function Grader() {
     return counts;
   }, [rows]);
 
+  /**
+   * The same clause results, counted across the cohort instead of per student.
+   * Only outright failures count — an inconclusive clause is a question we did
+   * not get to ask, not evidence that the class misunderstood it.
+   */
+  const clauseMisses = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const r of rows) {
+      if (!r.report) continue;
+      for (const c of r.report.clauses) {
+        if (c.status === "fail") {
+          counts.set(c.clause, (counts.get(c.clause) ?? 0) + 1);
+        }
+      }
+    }
+    return MEDIAN.clauses
+      .map((c) => ({ clause: c.id, text: c.text, missed: counts.get(c.id) ?? 0 }))
+      .sort((a, b) => b.missed - a.missed);
+  }, [rows]);
+
   /** Gradebook as CSV. Held in memory only — nothing is uploaded anywhere. */
   const exportCsv = useCallback(() => {
     const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
@@ -264,6 +294,34 @@ export function Grader() {
                 a submission is worth.
               </p>
 
+              {scoringImports.length > 0 && (
+                <details className="mt-6 max-w-xl">
+                  <summary className="cursor-pointer font-mono text-[11px] text-faint transition-colors hover:text-muted">
+                    Why you can trust the score
+                  </summary>
+                  <div className="mt-3 rounded-lg border border-line bg-surface px-4 py-3">
+                    <p className="text-[12px] leading-relaxed text-muted">
+                      The grade is computed by{" "}
+                      <code className="font-mono text-ink">lib/scoring.ts</code>,
+                      a pure function from test results to a mark. Read at build
+                      time, everything that file imports is:
+                    </p>
+                    <ul className="mt-2.5 space-y-1">
+                      {scoringImports.map((i) => (
+                        <li key={i} className="font-mono text-[12px] text-pass">
+                          {i}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-2.5 text-[12px] leading-relaxed text-muted">
+                      No model, no network, no API client. This list is extracted
+                      from the file itself, so wiring a model into the grading
+                      path would change what you are reading right now.
+                    </p>
+                  </div>
+                </details>
+              )}
+
               <div className="mt-10 flex flex-wrap items-center gap-4">
                 <button
                   onClick={gradeAll}
@@ -322,6 +380,14 @@ export function Grader() {
             </motion.section>
           ) : (
             <section key="queue" className="pt-8">
+              {phase === "complete" && (
+                <ClassInsights
+                  misses={clauseMisses}
+                  total={stats.done}
+                  inconclusive={stats.inconclusive}
+                />
+              )}
+
               {phase === "complete" && (
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                   <p className="text-[12px] text-muted">

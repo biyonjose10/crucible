@@ -11,7 +11,8 @@
     "prebuild": "node scripts/copy-pyodide.mjs",
     "predev": "node scripts/copy-pyodide.mjs",
     "verify": "tsx scripts/verify.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.19.0",
@@ -36,5 +37,6 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.12",
     "typescript": "^5"
-  }
+  },
+  "license": "MIT"
 }

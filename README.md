@@ -4,9 +4,15 @@
 
 A sandbox runs the student's Python. The test results determine the score arithmetically. The language model is shown only the failing traces, and writes the explanation. It has no tool, no field, and no import path that can touch the number.
 
-<!-- TODO: live demo URL --> **Live demo:** `https://…`
-<!-- TODO: 2-minute video link --> **Video (2:00):** `https://…`
-<!-- TODO: screenshot of the grading queue mid-run — green/red/amber -->
+**Live demo: [crucible-green.vercel.app](https://crucible-green.vercel.app)** — no login, no API key.
+<!-- TODO: paste the video URL once recorded --> **Video (2:00):** `https://…`
+![The grading queue after a run: thirty submissions, green passes, red partials, and one amber INCONCLUSIVE](docs/screenshot-queue.jpg)
+
+*Thirty submissions in 5.9 seconds. Row 07 hit an infinite loop and was terminated at five seconds, so it is flagged for a human rather than guessed at.*
+
+![The feedback a student receives: what to fix, on which line, and why](docs/screenshot-student.jpg)
+
+*The same result addressed to the student. This submission told the grader to award full marks; it scored 4/10, and the explanation says why that instruction could not work.*
 
 ---
 
@@ -186,6 +192,7 @@ app/              Next.js App Router — landing page, grading queue, API routes
 - **Hidden tests are only hidden from the student.** Anyone reading this public repo can see them in `lib/assignment.ts`. In a real deployment they would live server-side and never ship to the client. The property being demonstrated is the visible/hidden split, not secrecy.
 - **First load pulls a few megabytes.** A real CPython runtime in WebAssembly is not small. It is cached after the first visit, but the first grading run on a cold browser waits on it.
 - **The model can still be wrong about the diagnosis.** It cannot be wrong about the score. That asymmetry is the design: a wrong explanation is cheap and a student can see through it, a wrong grade is expensive and invisible. An instructor override is the intended backstop for the remainder, and is not yet built.
+- **The tests are hand-written, and that is the real prerequisite.** Crucible grades against a test suite an instructor authored. If you have no tests, it has nothing to grade with. Having the model generate tests from the rubric — for a human to approve before use — would extend the design rather than break it, since tests would still decide the mark. It was deliberately not built here: it is a large addition, and a stated limitation is worth more than a shaky feature.
 - **Per-clause credit is all-or-nothing.** A clause with one failing hidden test earns zero. That is defensible for a contract-style rubric and would be wrong for an essay.
 
 ## What's next

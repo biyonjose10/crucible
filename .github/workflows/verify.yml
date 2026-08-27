@@ -1,0 +1,40 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # The central claim of the project, enforced on every push:
+      # lib/scoring.ts reaches no language model, all eight archetypes score
+      # exactly what their tests dictate, and the same submission graded twice
+      # produces an identical report.
+      - name: Unit tests
+        run: npm test
+
+      - name: Verification gate
+        run: npm run verify
+
+      - name: Production build
+        run: npm run build
+
+      # A credential must never enter this repo's history — the key it runs on
+      # is shared with two other live projects and cannot be quickly rotated.
+      - name: Secret scan
+        run: bash scripts/scan-secrets.sh
