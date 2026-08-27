@@ -1,5 +1,7 @@
 # Crucible
 
+[![verify](https://github.com/biyonjose10/crucible/actions/workflows/verify.yml/badge.svg)](https://github.com/biyonjose10/crucible/actions/workflows/verify.yml)
+
 **An AI code grader that is architecturally forbidden from setting the grade.**
 
 A sandbox runs the student's Python. The test results determine the score arithmetically. The language model is shown only the failing traces, and writes the explanation. It has no tool, no field, and no import path that can touch the number.
