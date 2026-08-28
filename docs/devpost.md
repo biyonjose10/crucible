@@ -14,9 +14,9 @@ An AI code grader that is architecturally forbidden from setting the grade.
 
 ## Links
 
-- **Try it:** <!-- TODO: live URL -->
+- **Try it:** https://crucible-green.vercel.app
 - **Video (2:00):** <!-- TODO: video URL -->
-- **Repo:** <!-- TODO: public repo URL -->
+- **Repo:** https://github.com/biyonjose10/crucible
 
 ## Gallery image
 
