@@ -2,7 +2,12 @@
 
 @AGENTS.md
 
-**Hackathon entry. Deadline: 2026-08-29, 11:45pm PDT.** Prometheus August AI
+**Hackathon entry. Devpost closes 2026-08-31, 11:45am PDT** — that is the
+platform-enforced submission window (`/details/dates`: "August 18 at 2:15am PDT
+through August 31 at 11:45am PDT") and the site countdown. The organisers' prose
+says "you have until August 29th", so **treat 08-29 as the working deadline** and
+08-31 as slack that may not be honoured. An earlier note here said 08-29 11:45pm;
+that was wrong on both the date and am/pm. Prometheus August AI
 Challenge (Devpost). Judged out of 100 on four equal 25-point criteria:
 Educational Impact, Creative Use of AI/ML, Technical Execution, Pitch & Demo.
 
@@ -141,7 +146,8 @@ production deployed.
       do this. Opens on the student view, not the queue.
 - [ ] **Fill the placeholder URLs** in `docs/devpost.md` (live, video, repo) and
       the video link in `README.md`.
-- [ ] **Submit on Devpost** before 2026-08-29 11:45pm PDT.
+- [ ] **Submit on Devpost** — aim for 2026-08-29, hard stop 08-31 11:45am PDT
+      (= 2026-09-01 00:15 IST). See the deadline note at the top.
 - [ ] **Offer a download of the sample class** so a visitor can open the 30
       seeded submissions and check them out for themselves — same motive as the
       visitor code box: it lets someone verify we did not pick eight friendly
