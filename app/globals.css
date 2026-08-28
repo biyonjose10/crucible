@@ -84,6 +84,15 @@ body {
   }
 }
 
+/* Smooth scroll for the hero's in-page link to the visitor code box. Opted in
+   only when motion is welcome — a reduced-motion visitor gets the instant jump,
+   which is the accessible default and also what an unsupported browser does. */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
 ::selection {
   background: rgba(255, 255, 255, 0.16);
 }

@@ -46,7 +46,10 @@ export function TryYourOwn({
   };
 
   return (
-    <section className="mt-16 border-t border-line pt-10">
+    // The id is the target of the hero's "or paste your own code" link. The
+    // scroll margin keeps the heading off the very top edge of the viewport,
+    // so the section lands with its title and the prompt both visible.
+    <section id="try-your-own" className="mt-16 scroll-mt-10 border-t border-line pt-10">
       <h2 className="text-lg font-medium tracking-tight">
         Or grade something of your own.
       </h2>

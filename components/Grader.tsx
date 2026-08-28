@@ -357,6 +357,24 @@ export function Grader({
                       ? "no login · no API key · runs in your browser"
                       : `starting Python… ${boot.ready}/${boot.total} ready`}
                 </span>
+
+                {/* The second path, stated on the first screen.
+                    "Or grade something of your own" lives below the stat grid,
+                    which is a bordered box and therefore reads as the end of the
+                    page — so a visitor who never scrolls never learns they can
+                    run their own code, which is the answer to "did you rig the
+                    eight cases?". A plain anchor, so it works without JS and
+                    leaves the next Tab stop inside the section it points at.
+                    Sits in this row rather than on a line of its own: the fold
+                    is the whole problem here, and this costs no extra height. */}
+                <a
+                  href="#try-your-own"
+                  className="font-mono text-xs text-muted underline decoration-line
+                             underline-offset-4 transition-colors hover:text-ink
+                             hover:decoration-muted"
+                >
+                  or paste your own code ↓
+                </a>
               </div>
 
               {bootError && (
