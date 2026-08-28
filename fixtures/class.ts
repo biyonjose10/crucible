@@ -1,3 +1,4 @@
+import { MEDIAN } from "../lib/assignment";
 import { ARCHETYPES, type Archetype } from "./archetypes";
 
 /**
@@ -94,8 +95,24 @@ export const CLASS: Submission[] = ROSTER.map((key, index) => {
   };
 });
 
-/** Distinct failure modes present in the class. Drives the dedupe headline. */
-export const DISTINCT_ARCHETYPES = new Set(ROSTER).size;
+/**
+ * Distinct failure modes present in the class. Drives the dedupe headline.
+ *
+ * A submission that earns full marks is not a failure mode, so `correct` is
+ * excluded. Counting it made the landing page advertise one more distinct
+ * mistake than a run could ever report — the stat read 8 while the finished
+ * queue, on the same screen, said "29 marked from 7 distinct mistakes".
+ *
+ * The test is the same one the queue applies at runtime: did this lose marks?
+ */
+const FULL_MARKS = MEDIAN.clauses.reduce((sum, c) => sum + c.points, 0);
+
+export const DISTINCT_ARCHETYPES = new Set(
+  ROSTER.filter((key) => {
+    const { expected } = archetypeFor(key);
+    return expected.status !== "graded" || expected.earned < FULL_MARKS;
+  }),
+).size;
 
 /** Find a submission by archetype — used to jump straight to a demo beat. */
 export function firstOf(archetypeKey: string): Submission | undefined {

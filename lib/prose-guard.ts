@@ -46,3 +46,33 @@ export function mentionsUnknownIdentifier(
     return !new RegExp(`\\b${name}\\b`).test(code);
   });
 }
+
+/**
+ * Strip the markdown a model reaches for when it writes a longer answer.
+ *
+ * The diagnosis is rendered as plain text with `whitespace-pre-wrap`, so a
+ * heading arrives on screen as a literal "### What Went Wrong" and emphasis as
+ * literal asterisks. Observed live: short single-issue answers came back clean,
+ * but a submission failing three clauses produced a numbered list under a
+ * heading — which is exactly what a visitor pasting badly broken code triggers.
+ *
+ * The system instruction now asks for prose without formatting. This is the
+ * backstop for when the model does it anyway, and it runs on the whole
+ * accumulated string at render rather than per streamed chunk, so a `**` split
+ * across two chunks is still matched once both halves have arrived.
+ *
+ * Deliberately narrow:
+ *  • Backticks are LEFT ALONE. The panels rely on `identifier` reading as code,
+ *    and mentionsUnknownIdentifier above parses them to decide cache reuse.
+ *  • List markers are left alone; "- item" reads correctly as plain text.
+ *  • Only ** and __ are unwrapped. A single asterisk is more likely to be
+ *    arithmetic or a glob than emphasis.
+ */
+export function toPlainProse(summary: string): string {
+  return summary
+    // ATX headings: drop the marker, keep the words.
+    .replace(/^[ \t]{0,3}#{1,6}[ \t]+/gm, "")
+    // Bold. The \S guards stop an empty match from eating adjacent text.
+    .replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, "$1")
+    .replace(/__(?=\S)([\s\S]*?\S)__/g, "$1");
+}

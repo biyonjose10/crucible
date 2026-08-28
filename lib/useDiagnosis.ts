@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Diagnosis } from "./diagnose";
+import { toPlainProse } from "./prose-guard";
 import type { ScoreReport } from "./scoring";
 
 /**
@@ -191,5 +192,9 @@ export function useDiagnosis(
     };
   }, [active, submissionId, assignmentSlug, code, report]);
 
-  return state;
+  // Cleaned here rather than at either render site, so every consumer gets
+  // prose and a future one cannot forget to. Re-derived each render, which is
+  // what makes it correct mid-stream: the whole accumulated string is passed,
+  // so a `**` whose halves arrived in different chunks still matches.
+  return { ...state, text: toPlainProse(state.text) };
 }

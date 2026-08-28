@@ -358,6 +358,12 @@ WHAT YOU ARE SHOWN
 Only failing evidence. Passing tests are not included, and you should not
 speculate about them.
 
+HOW TO WRITE IT
+Plain prose, in sentences. Your text is displayed as-is and is never rendered
+as markdown, so formatting marks appear to the student literally. Do not use
+headings, bold, italics, or a title of any kind. Backticks around an
+identifier or a value are fine and are the only markup that renders.
+
 ASSIGNMENT: ${assignment.title}
 SIGNATURE: ${assignment.signature}
 SPECIFICATION: ${assignment.prompt}
