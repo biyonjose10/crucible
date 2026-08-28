@@ -132,4 +132,18 @@ one line to change.
 `docs/video-script.md` (shot-by-shot, ~1:50 of narration) and `docs/devpost.md`
 (paste-ready). README has TODO markers for the video link and screenshot.
 
-**Outstanding:** public GitHub repo, record the video, submit on Devpost.
+## To do
+
+Done: public repo (https://github.com/biyonjose10/crucible), CI green,
+production deployed.
+
+- [ ] **Record the 2-minute video** — `docs/video-script.md`. Only the user can
+      do this. Opens on the student view, not the queue.
+- [ ] **Fill the placeholder URLs** in `docs/devpost.md` (live, video, repo) and
+      the video link in `README.md`.
+- [ ] **Submit on Devpost** before 2026-08-29 11:45pm PDT.
+- [ ] **Offer a download of the sample class** so a visitor can open the 30
+      seeded submissions and check them out for themselves — same motive as the
+      visitor code box: it lets someone verify we did not pick eight friendly
+      cases. Source is `fixtures/class.ts`; the gradebook CSV download in
+      `components/Grader.tsx` is the affordance to copy.
