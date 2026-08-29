@@ -6,8 +6,11 @@
 platform-enforced submission window (`/details/dates`: "August 18 at 2:15am PDT
 through August 31 at 11:45am PDT") and the site countdown. The organisers' prose
 says "you have until August 29th", so **treat 08-29 as the working deadline** and
-08-31 as slack that may not be honoured. An earlier note here said 08-29 11:45pm;
-that was wrong on both the date and am/pm. Prometheus August AI
+08-31 as slack that may not be honoured. This file previously recorded 08-29
+11:45pm, read off the site on 08-27 — most likely accurate then and moved since,
+rather than a transcription error, which would also explain why the organisers'
+prose still says the 29th. Re-read the dates page rather than trusting either
+number if it matters. Prometheus August AI
 Challenge (Devpost). Judged out of 100 on four equal 25-point criteria:
 Educational Impact, Creative Use of AI/ML, Technical Execution, Pitch & Demo.
 
