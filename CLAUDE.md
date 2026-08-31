@@ -2,17 +2,20 @@
 
 @AGENTS.md
 
-**Hackathon entry. Devpost closes 2026-08-31, 11:45am PDT** — that is the
-platform-enforced submission window (`/details/dates`: "August 18 at 2:15am PDT
-through August 31 at 11:45am PDT") and the site countdown. The organisers' prose
-says "you have until August 29th", so **treat 08-29 as the working deadline** and
-08-31 as slack that may not be honoured. This file previously recorded 08-29
-11:45pm, read off the site on 08-27 — most likely accurate then and moved since,
-rather than a transcription error, which would also explain why the organisers'
-prose still says the 29th. Re-read the dates page rather than trusting either
-number if it matters. Prometheus August AI
-Challenge (Devpost). Judged out of 100 on four equal 25-point criteria:
+**Hackathon entry: https://august-ai-challenge-31059.devpost.com/** — Prometheus
+August AI Challenge. Judged out of 100 on four equal 25-point criteria:
 Educational Impact, Creative Use of AI/ML, Technical Execution, Pitch & Demo.
+
+**Deadline as of 2026-08-31: Sep 3 2026, 11:45am PDT** (= 2026-09-04 00:15 IST),
+from both `/details/dates` ("August 18 at 2:15am PDT through September 03 at
+11:45am PDT") and the site countdown ("Deadline: Sep 3, 2026 @ 11:45am PDT").
+
+**Do not trust any date written here — re-read the dates page.** The platform
+close date has now moved twice under us: recorded as 08-29 11:45pm on 08-27,
+08-31 11:45am on 08-28, 09-03 11:45am on 08-31. The organisers' prose has said
+"you have until August 29th" throughout and still does, unchanged, with that
+date now two days past and the form still open — so the prose is stale copy,
+not the enforced rule, and the platform window is what actually governs.
 
 ## The one idea everything serves
 
@@ -149,8 +152,9 @@ production deployed.
       do this. Opens on the student view, not the queue.
 - [ ] **Fill the placeholder URLs** in `docs/devpost.md` (live, video, repo) and
       the video link in `README.md`.
-- [ ] **Submit on Devpost** — aim for 2026-08-29, hard stop 08-31 11:45am PDT
-      (= 2026-09-01 00:15 IST). See the deadline note at the top.
+- [ ] **Submit on Devpost** — hard stop 2026-09-03 11:45am PDT (= 09-04 00:15
+      IST), but the date has moved twice; re-read the dates page, don't trust
+      this line. See the deadline note at the top.
 - [ ] **Offer a download of the sample class** so a visitor can open the 30
       seeded submissions and check them out for themselves — same motive as the
       visitor code box: it lets someone verify we did not pick eight friendly
