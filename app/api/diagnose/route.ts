@@ -10,7 +10,9 @@
  *
  * ── Request ──────────────────────────────────────────────────────────────
  *   {
- *     assignmentSlug: string,   // must name a known assignment
+ *     assignmentSlug: string,   // a seeded slug, or a generated "custom-…" one
+ *     assignment?: Assignment,  // required for a generated slug, ignored for
+ *                               //   a seeded one; re-validated on arrival
  *     code: string,             // the student's source, untrusted
  *     report: ScoreReport       // used only to select failing evidence
  *   }
@@ -48,6 +50,7 @@
  */
 
 import { ASSIGNMENTS } from "@/lib/assignment";
+import { isCustomSlug, validateTransported } from "@/lib/authoring";
 import { diagnoseCached } from "@/lib/diagnose";
 import { failureSignature } from "@/lib/scoring";
 
@@ -147,9 +150,34 @@ export async function POST(request: Request): Promise<Response> {
   if (typeof slug !== "string") {
     return badRequest("Field `assignmentSlug` must be a string.");
   }
-  const assignment = ASSIGNMENTS[slug];
+  /**
+   * A seeded assignment resolves from the server's own registry and any inline
+   * `assignment` in the body is ignored, so that path is exactly what it was.
+   *
+   * A generated one has no entry to resolve — it was written for this visitor
+   * moments ago — so it travels with the request and is validated here as
+   * input. That is a real change in what the server trusts, and it is bounded
+   * deliberately: `validateTransported` re-derives the content-addressed slug
+   * and refuses a rubric that no longer matches the one it arrived under, size
+   * caps keep an oversized rubric from becoming an oversized bill, and the
+   * model is still shown only failing-test evidence and still has no field in
+   * which to express a score. The mark itself never comes from here — it is
+   * computed in the browser's sandbox by lib/scoring.ts before this route is
+   * ever called.
+   */
+  let assignment = ASSIGNMENTS[slug];
   if (!assignment) {
-    return badRequest(`Unknown assignment "${slug}".`);
+    if (!isCustomSlug(slug)) {
+      return badRequest(`Unknown assignment "${slug}".`);
+    }
+
+    const transported = validateTransported(
+      (raw as Record<string, unknown>).assignment,
+    );
+    if (typeof transported === "string") {
+      return badRequest(transported);
+    }
+    assignment = transported;
   }
 
   const parsed = parseBody(raw, assignment);

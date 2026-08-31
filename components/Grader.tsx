@@ -12,6 +12,15 @@ import { StudentView } from "./StudentView";
 import { TryYourOwn } from "./TryYourOwn";
 import { ClassInsights } from "./ClassInsights";
 import { toCsv } from "@/lib/gradebook";
+import type { Assignment } from "@/lib/types";
+
+/** The shape /api/author returns. Failures arrive as values, never as a throw. */
+interface AuthorResponse {
+  ok: boolean;
+  reason?: string;
+  assignment?: Assignment;
+  reference?: string;
+}
 
 export type RowState = "queued" | "running" | "done";
 
@@ -49,10 +58,17 @@ export function Grader({
   const [expanded, setExpanded] = useState<string | null>(null);
   /** Submission id currently shown as the student would receive it. */
   const [studentView, setStudentView] = useState<string | null>(null);
-  /** A one-off submission typed by the visitor, graded the same way as the class. */
+  /**
+   * A one-off submission typed by the visitor, graded the same way as the class.
+   *
+   * Carries its own assignment because it may have been graded against a
+   * model-authored one rather than the seeded exercise — the student view and
+   * the explanation both need the rubric the mark actually came from.
+   */
   const [custom, setCustom] = useState<{
     submission: Submission;
     report: ScoreReport;
+    assignment: Assignment;
   } | null>(null);
 
   const [rows, setRows] = useState<Row[]>(() =>
@@ -139,7 +155,7 @@ export function Grader({
    * point is that this path is not special. A fresh id per run keeps the
    * diagnosis memo from serving the previous attempt's explanation.
    */
-  const gradeOne = useCallback(async (code: string) => {
+  const gradeOne = useCallback(async (code: string, against: Assignment) => {
     const pool = poolRef.current;
     if (!pool) return;
 
@@ -151,12 +167,103 @@ export function Grader({
       code,
     };
 
-    const outcome = await pool.run(id, code, MEDIAN.tests);
-    const report = score(MEDIAN, outcome);
+    const outcome = await pool.run(id, code, against.tests);
+    const report = score(against, outcome);
 
-    setCustom({ submission, report });
+    setCustom({ submission, report, assignment: against });
     setStudentView(id);
   }, []);
+
+  /**
+   * Have a model write an assignment for `problem`, and refuse to use it unless
+   * it survives being executed.
+   *
+   * The check is the whole point. `/api/author` returns a suite together with a
+   * reference solution the model wrote alongside it, and that solution is run
+   * here — in the visitor's own already-warm interpreter, at no cost and with
+   * no server-side Python — against the very tests it shipped with. A suite its
+   * own author cannot score full marks on is wrong, and grading a visitor
+   * against wrong tests would produce exactly the meaningless mark this project
+   * exists to rule out. So it is discarded rather than shown.
+   *
+   * One retry, carrying the reason back: a blind second attempt mostly
+   * reproduces the first mistake, while naming the failing test usually fixes
+   * it. After that the honest answer is that we could not build a fair test for
+   * this problem.
+   */
+  const buildSuite = useCallback(
+    async (
+      problem: string,
+      onProgress: (step: "authoring" | "checking") => void,
+    ): Promise<Assignment | { error: string }> => {
+      const pool = poolRef.current;
+      if (!pool) return { error: "The interpreter is not ready yet." };
+
+      let hint: string | undefined;
+
+      for (let attempt = 0; attempt < 2; attempt++) {
+        onProgress("authoring");
+
+        let body: AuthorResponse;
+        try {
+          const response = await fetch("/api/author", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ problem, retryHint: hint }),
+          });
+          if (!response.ok) {
+            return { error: await response.text() };
+          }
+          body = (await response.json()) as AuthorResponse;
+        } catch {
+          return {
+            error:
+              "Could not reach the server to write the tests. The median " +
+              "exercise below still works — grading it needs no network.",
+          };
+        }
+
+        if (!body.ok || !body.assignment || !body.reference) {
+          return { error: body.reason ?? "The test suite could not be written." };
+        }
+
+        onProgress("checking");
+
+        const outcome = await pool.run(
+          `ref-${Date.now()}`,
+          body.reference,
+          body.assignment.tests,
+        );
+        const report = score(body.assignment, outcome);
+
+        if (report.status === "graded" && report.earned === report.total) {
+          return body.assignment;
+        }
+
+        hint =
+          "Your reference solution scored " +
+          `${report.earned}/${report.total} against your own tests. ` +
+          report.clauses
+            .flatMap((c) => c.results)
+            .filter((r) => r.status !== "pass")
+            .slice(0, 4)
+            .map((r) => {
+              const test = body.assignment!.tests.find((t) => t.id === r.id);
+              return `${test?.expr ?? r.id} gave ${r.got ?? "no result"}, expected ${r.expected}`;
+            })
+            .join("; ");
+      }
+
+      return {
+        error:
+          "Couldn't build a reliable test suite for this problem. The " +
+          "generated tests didn't agree with a known-good solution, so " +
+          "grading you against them would be meaningless. Try rephrasing it, " +
+          "or describing a single function more precisely.",
+      };
+    },
+    [],
+  );
 
   /**
    * Stable identity on purpose. An inline arrow here re-created the callback on
@@ -414,6 +521,7 @@ export function Grader({
 
               <TryYourOwn
                 assignment={MEDIAN}
+                onBuildSuite={buildSuite}
                 onGrade={gradeOne}
                 disabled={!booted || !!bootError}
               />
@@ -478,15 +586,22 @@ export function Grader({
             ? custom
             : (() => {
                 const row = rows.find((r) => r.submission.id === studentView);
+                // Everyone in the seeded class was graded against the seeded
+                // assignment; only the visitor's own submission can carry
+                // another one.
                 return row?.report
-                  ? { submission: row.submission, report: row.report }
+                  ? {
+                      submission: row.submission,
+                      report: row.report,
+                      assignment: MEDIAN,
+                    }
                   : null;
               })();
         if (!pair) return null;
         return (
           <StudentView
             submission={pair.submission}
-            assignment={MEDIAN}
+            assignment={pair.assignment}
             report={pair.report}
             onClose={closeStudentView}
           />
