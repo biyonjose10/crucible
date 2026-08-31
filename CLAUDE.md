@@ -85,6 +85,50 @@ Because the repo is public:
 - Note: `GEMINI_API_KEY` is *also* set as a Windows User-scope env var, which
   can mask a missing `.env.local` during testing.
 
+## Bring your own problem — model-authored suites
+
+Added 2026-08-31. A visitor can describe a function in prose; `/api/author`
+has a model write the rubric and the executable suite, and the sandbox grades
+against it exactly as it grades the median exercise.
+
+**This does not weaken the central claim, and the reason is worth keeping
+straight: the model authors the ruler, it does not read it.** `lib/scoring.ts`
+is untouched and still imports only `lib/types.ts`. What the model produces is
+tests, which the sandbox executes. It still has no field in which to express a
+score.
+
+Three things hold that up. Do not remove any of them:
+
+1. **`lib/authoring.ts` is pure and refuses an unusable suite** — a clause no
+   test covers (which would score `inconclusive` forever and silently withhold
+   its marks), a test naming a clause that does not exist, an expected value
+   that will not decode, a suite with no hidden tests. It imports only
+   `./types`, so it is testable without a key (`test/authoring.test.ts`).
+2. **The self-check.** The model writes a reference solution alongside the
+   tests; the browser runs it against them in the already-warm pool before
+   anyone sees them, and discards the suite unless it scores full marks. One
+   retry, carrying the failing test back — a blind retry mostly repeats the
+   mistake. `npm run check-suite` drives the same loop from Node against a
+   running dev server; 5/5 sample problems passed first try on 2026-08-31.
+3. **Mandatory approval.** `components/GeneratedSuite.tsx` shows every test —
+   expression and expected value — and nothing is graded until the visitor
+   accepts. Read-only on purpose: an edited suite invalidates the self-check
+   that justified showing it.
+
+Two implementation details that will bite if forgotten:
+
+- **Generated slugs are content-addressed** (`custom-<FNV hash>`). `diagnose.ts`
+  keys its explanation cache on `slug#failureSignature`, so a constant slug
+  would let two unrelated problems serve each other's explanation.
+- **`expected` travels as `expectedJson`**, a JSON-encoded string, because JSON
+  Schema cannot express "any JSON value" in one field. Also tell the model that
+  a Python tuple is not JSON — it must test `list(f(x))`. It gets this right.
+
+Deferred hardening: HMAC-signing a generated assignment so `/api/diagnose` can
+prove the server authored it, rather than re-validating it as input. Rejected
+before the deadline because it needs a new Vercel env var, and a missing one is
+a new production failure mode.
+
 ## Known, accepted risk — no rate limiting
 
 `/api/diagnose` is public, accepts arbitrary code, and calls Gemini on every
@@ -99,11 +143,19 @@ deadline. Do not silently re-litigate it — but if abuse actually appears, the
 fix is a per-IP limit plus a daily spend ceiling that degrades to the existing
 `unavailable: true` path, which is already built and tested.
 
+`/api/author` is the newer and more expensive surface — a rubric plus a suite
+is a larger prompt than a diagnosis — so it does carry a 4KB body cap and a
+per-IP limit of 10/hour that degrades to `{ ok: false, reason }`. **Describe
+that honestly.** Vercel runs it on ephemeral, horizontally-scaled lambdas, so
+the counter is per-instance and resets on every cold start. It raises the cost
+of casual abuse; it is not a spend ceiling.
+
 ## Commands
 
 ```
 npm run dev            # predev copies pyodide first
-npm run verify         # THE GATE: import hygiene + 8 archetypes + determinism
+npm run verify         # THE GATE: import hygiene + 9 archetypes + determinism
+npm run check-suite    # authoring: does each generated suite pass its own reference?
 npm run scan-secrets   # before any push
 npm run setup-hooks    # once per clone
 npx next build         # production build
@@ -112,7 +164,7 @@ npx vercel --prod --yes
 
 ## Fixtures — these numbers are load-bearing
 
-`fixtures/archetypes.ts` defines 8 submissions driving a seeded 30-student class
+`fixtures/archetypes.ts` defines 9 submissions driving a seeded 30-student class
 (`fixtures/class.ts`). `scripts/verify.ts` asserts each score exactly:
 
 | Archetype | Score | Why it exists |
@@ -123,6 +175,7 @@ npx vercel --prod --yes
 | infinite-loop | INCONCLUSIVE | Worker.terminate() at 5s |
 | syntax-error | 0/10 | diagnosis works with no execution |
 | **prompt-injection** | **4/10** | tells the grader to award full marks; scored by tests anyway |
+| forged-result | 8/10 | prints fabricated result markers; per-run marker defeats it |
 | hardcoded | 4/10 | passes 5/5 visible, fails 5/7 hidden |
 | empty-crash | 8/10 | the empty-list contract |
 
@@ -155,6 +208,8 @@ production deployed.
 - [ ] **Submit on Devpost** — hard stop 2026-09-03 11:45am PDT (= 09-04 00:15
       IST), but the date has moved twice; re-read the dates page, don't trust
       this line. See the deadline note at the top.
+- [ ] **Test the custom-problem path on a phone.** Untested anywhere, like
+      the rest of mobile.
 - [ ] **Offer a download of the sample class** so a visitor can open the 30
       seeded submissions and check them out for themselves — same motive as the
       visitor code box: it lets someone verify we did not pick eight friendly
