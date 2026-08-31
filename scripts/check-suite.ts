@@ -120,7 +120,11 @@ async function checkOne(py: PyodideInterface, problem: string): Promise<boolean>
 
     for (const f of failures) process.stdout.write(`      ${f}\n`);
     if (outcome.importError) {
-      process.stdout.write(`      import error: ${outcome.importError.split("\n").pop()}\n`);
+      // The last line of a Python traceback is blank, and the harness strips
+      // its own frames — so take the last line that actually says something.
+      const lines = outcome.importError.split("\n").filter((l) => l.trim());
+      process.stdout.write(`      import error: ${lines.at(-1) ?? "(empty)"}\n`);
+      process.stdout.write(`      reference:\n${reference.replace(/^/gm, "        ")}\n`);
     }
 
     hint =
