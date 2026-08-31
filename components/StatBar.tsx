@@ -16,7 +16,8 @@ interface Props {
   bootError: string | null;
   elapsed: number;
   stats: Stats;
-  spend: { usd: number; calls: number };
+  /** Returns to the landing page. Absent while there is nothing to return from. */
+  onHome?: () => void;
 }
 
 function Stat({
@@ -48,7 +49,7 @@ export function StatBar({
   bootError,
   elapsed,
   stats,
-  spend,
+  onHome,
 }: Props) {
   const pct = stats.total ? (stats.done / stats.total) * 100 : 0;
 
@@ -56,9 +57,23 @@ export function StatBar({
     <header className="sticky top-0 z-20 border-b border-line bg-bg/85 backdrop-blur-md">
       <div className="w-full max-w-5xl mx-auto px-5 h-14 flex items-center justify-between gap-6">
         <div className="flex items-baseline gap-3 min-w-0">
-          <span className="font-mono text-sm tracking-[0.2em] font-medium">
-            CRUCIBLE
-          </span>
+          {/* The header is sticky, so this stays reachable from anywhere in a
+              thirty-card list — which is the whole point of putting it here
+              rather than at the end of the results. */}
+          {onHome ? (
+            <button
+              type="button"
+              onClick={onHome}
+              className="font-mono text-sm tracking-[0.2em] font-medium text-faint transition-colors hover:text-ink focus-visible:text-ink"
+            >
+              <span aria-hidden="true">←</span> CRUCIBLE
+              <span className="sr-only"> — back to the start</span>
+            </button>
+          ) : (
+            <span className="font-mono text-sm tracking-[0.2em] font-medium">
+              CRUCIBLE
+            </span>
+          )}
           <span
             className={`hidden sm:inline-flex items-center gap-1.5 font-mono text-[11px] ${
               bootError ? "text-fail" : booted ? "text-muted" : "text-faint"
@@ -98,13 +113,6 @@ export function StatBar({
               tone="text-muted"
             />
             <Stat label="Elapsed" value={`${(elapsed / 1000).toFixed(1)}s`} />
-            {/* Grading itself is free — this only ever moves when someone
-                opens a card and asks for an explanation. */}
-            <Stat
-              label="Spent"
-              value={spend.usd === 0 ? "$0.00" : `$${spend.usd.toFixed(4)}`}
-              tone={spend.usd === 0 ? "text-faint" : "text-ink"}
-            />
           </div>
         )}
       </div>

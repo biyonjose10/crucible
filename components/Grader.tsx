@@ -6,7 +6,6 @@ import { MEDIAN } from "@/lib/assignment";
 import { GraderPool } from "@/lib/grader-pool";
 import { failureSignature, score, type ScoreReport } from "@/lib/scoring";
 import { CLASS, DISTINCT_ARCHETYPES, type Submission } from "@/fixtures/class";
-import type { Diagnosis } from "@/lib/diagnose";
 import { SubmissionCard } from "./SubmissionCard";
 import { StatBar } from "./StatBar";
 import { StudentView } from "./StudentView";
@@ -48,9 +47,6 @@ export function Grader({
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
-  // Real spend, accumulated from API usage. Reused diagnoses are not counted
-  // again — that reuse is exactly what keeps the number small.
-  const [spend, setSpend] = useState({ usd: 0, calls: 0 });
   /** Submission id currently shown as the student would receive it. */
   const [studentView, setStudentView] = useState<string | null>(null);
   /** A one-off submission typed by the visitor, graded the same way as the class. */
@@ -171,14 +167,21 @@ export function Grader({
   const closeStudentView = useCallback(() => setStudentView(null), []);
 
   /**
-   * Every path that spends money reports through here. The student view and the
-   * visitor's own submission both bill real tokens, and both previously left
-   * the "Spent" readout at $0.00 — the one number the UI presents as ground
-   * truth about cost.
+   * Back to the landing page.
+   *
+   * Resets every piece of run state rather than only `phase`, so a second run
+   * starts from the same place the first one did. The pool is deliberately left
+   * alone — it is warm, and re-booting Pyodide to return to a static page would
+   * make the button feel broken.
    */
-  const recordSpend = useCallback((d: Diagnosis) => {
-    if (d.cached || d.unavailable) return;
-    setSpend((s) => ({ usd: s.usd + d.costUsd, calls: s.calls + 1 }));
+  const goHome = useCallback(() => {
+    setPhase("idle");
+    setRows(CLASS.map((submission) => ({ submission, state: "queued" as const })));
+    setStartedAt(null);
+    setElapsed(0);
+    setExpanded(null);
+    setStudentView(null);
+    setCustom(null);
   }, []);
 
   const stats = useMemo(() => {
@@ -278,7 +281,7 @@ export function Grader({
         bootError={bootError}
         elapsed={elapsed}
         stats={stats}
-        spend={spend}
+        onHome={phase === "idle" ? undefined : goHome}
       />
 
       <main className="flex-1 w-full max-w-5xl mx-auto px-5 pb-24">
@@ -409,7 +412,11 @@ export function Grader({
                 ))}
               </dl>
 
-              <TryYourOwn onGrade={gradeOne} disabled={!booted || !!bootError} />
+              <TryYourOwn
+                assignment={MEDIAN}
+                onGrade={gradeOne}
+                disabled={!booted || !!bootError}
+              />
             </motion.section>
           ) : (
             <section key="queue" className="pt-8">
@@ -444,6 +451,7 @@ export function Grader({
                   <SubmissionCard
                     key={row.submission.id}
                     row={row}
+                    assignment={MEDIAN}
                     index={i}
                     expanded={expanded === row.submission.id}
                     onToggle={() =>
@@ -455,7 +463,6 @@ export function Grader({
                       row.signature ? (cohort.get(row.signature) ?? 0) - 1 : 0
                     }
                     onOpenStudentView={() => setStudentView(row.submission.id)}
-                    onDiagnosis={recordSpend}
                   />
                 ))}
               </div>
@@ -479,8 +486,8 @@ export function Grader({
         return (
           <StudentView
             submission={pair.submission}
+            assignment={MEDIAN}
             report={pair.report}
-            onDiagnosis={recordSpend}
             onClose={closeStudentView}
           />
         );

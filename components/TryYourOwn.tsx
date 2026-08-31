@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { MEDIAN } from "@/lib/assignment";
+import type { Assignment } from "@/lib/types";
 
 /**
  * The part a visitor can break themselves.
@@ -26,9 +26,11 @@ const SEED = `def median(nums: list[float]) -> float:
 `;
 
 export function TryYourOwn({
+  assignment,
   onGrade,
   disabled,
 }: {
+  assignment: Assignment;
   onGrade: (code: string) => Promise<void>;
   disabled: boolean;
 }) {
@@ -54,7 +56,7 @@ export function TryYourOwn({
         Or grade something of your own.
       </h2>
       <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-muted">
-        {MEDIAN.prompt}
+        {assignment.prompt}
       </p>
 
       <label htmlFor="own-code" className="sr-only">

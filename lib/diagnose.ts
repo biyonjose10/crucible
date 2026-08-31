@@ -468,12 +468,12 @@ function indent(text: string, spaces: number): string {
  * the route on every request, and a key added to the environment after boot
  * should take effect without a rebuild.
  */
-function readApiKey(): string | undefined {
+export function readApiKey(): string | undefined {
   const key = process.env.GEMINI_API_KEY;
   return key && key.trim().length > 0 ? key : undefined;
 }
 
-function makeClient(apiKey: string): GoogleGenAI {
+export function makeClient(apiKey: string): GoogleGenAI {
   // Passing the key explicitly rather than letting the SDK discover it from the
   // environment, so that the one place this process reads a credential is
   // readApiKey() above and grep finds it in one hop.
@@ -489,21 +489,21 @@ function makeClient(apiKey: string): GoogleGenAI {
  * in a header and should never include it, which is exactly why this costs
  * nothing to keep.
  */
-function redact(text: string): string {
+export function redact(text: string): string {
   return text
     .replace(/AIza[0-9A-Za-z_-]{10,}/g, "<redacted>")
     .replace(/([?&](?:key|api_?key)=)[^&\s]+/gi, "$1<redacted>");
 }
 
 /** Cancellation, whether it came from our deadline or the caller's signal. */
-function isAbort(err: unknown): boolean {
+export function isAbort(err: unknown): boolean {
   return (
     err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")
   );
 }
 
 /** 429 and 5xx are worth another attempt; a 400 will fail identically forever. */
-function isRetryable(err: unknown): boolean {
+export function isRetryable(err: unknown): boolean {
   if (isAbort(err)) return false;
   if (err instanceof ApiError) {
     return err.status === 429 || err.status >= 500;
@@ -536,7 +536,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
  * already been sent to the client, because replaying it would duplicate text
  * the student is mid-way through reading.
  */
-async function withRetry<T>(
+export async function withRetry<T>(
   signal: AbortSignal,
   attempt: () => Promise<T>,
   canRetry: () => boolean = () => true,
@@ -564,7 +564,7 @@ async function withRetry<T>(
  * the caller supplied. Composed by hand rather than with `AbortSignal.any` so
  * this compiles the same on every Node version the demo might run on.
  */
-function withDeadline(external?: AbortSignal): {
+export function withDeadline(external?: AbortSignal): {
   signal: AbortSignal;
   timedOut: () => boolean;
   dispose: () => void;

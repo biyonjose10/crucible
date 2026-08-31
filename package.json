@@ -11,6 +11,7 @@
     "prebuild": "node scripts/copy-pyodide.mjs",
     "predev": "node scripts/copy-pyodide.mjs",
     "verify": "tsx scripts/verify.ts",
+    "check-suite": "tsx scripts/check-suite.ts",
     "typecheck": "tsc --noEmit",
     "scan-secrets": "bash scripts/scan-secrets.sh",
     "setup-hooks": "bash scripts/setup-hooks.sh",

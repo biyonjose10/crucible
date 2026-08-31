@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Diagnosis } from "./diagnose";
 import { toPlainProse } from "./prose-guard";
 import type { ScoreReport } from "./scoring";
+import type { Assignment } from "./types";
 
 /**
  * Stream a diagnosis for one submission.
@@ -46,7 +47,7 @@ const IDLE: DiagnosisState = { text: "", streaming: false };
 
 export function useDiagnosis(
   submissionId: string,
-  assignmentSlug: string,
+  assignment: Assignment,
   code: string,
   report: ScoreReport | undefined,
   active: boolean,
@@ -102,7 +103,18 @@ export function useDiagnosis(
         const res = await fetch("/api/diagnose", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ assignmentSlug, code, report }),
+          body: JSON.stringify({
+            assignmentSlug: assignment.slug,
+            // Sent only for runtime-generated assignments, which the server
+            // cannot look up in its own registry. Known slugs resolve
+            // server-side and any inline assignment is ignored, so the median
+            // path is unchanged.
+            assignment: assignment.slug.startsWith("custom-")
+              ? assignment
+              : undefined,
+            code,
+            report,
+          }),
         });
 
         if (!res.ok || !res.body) {
@@ -190,7 +202,7 @@ export function useDiagnosis(
     return () => {
       live = false;
     };
-  }, [active, submissionId, assignmentSlug, code, report]);
+  }, [active, submissionId, assignment, code, report]);
 
   // Cleaned here rather than at either render site, so every consumer gets
   // prose and a future one cannot forget to. Re-derived each render, which is

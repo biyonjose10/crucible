@@ -1,12 +1,11 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { MEDIAN } from "@/lib/assignment";
 import type { ClauseScore, ScoreReport } from "@/lib/scoring";
+import type { Assignment } from "@/lib/types";
 import type { Row } from "./Grader";
 import { EvidenceChip } from "./EvidenceChip";
 import { DiagnosisPanel } from "./DiagnosisPanel";
-import type { Diagnosis } from "@/lib/diagnose";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -19,8 +18,14 @@ function verdict(report: ScoreReport | undefined) {
   return { label: `${report.earned}/${report.total}`, tone: "text-fail", dot: "bg-fail" };
 }
 
-function ClauseBlock({ clause }: { clause: ClauseScore }) {
-  const tests = MEDIAN.tests.filter((t) => t.clause === clause.clause);
+function ClauseBlock({
+  clause,
+  assignment,
+}: {
+  clause: ClauseScore;
+  assignment: Assignment;
+}) {
+  const tests = assignment.tests.filter((t) => t.clause === clause.clause);
   const byId = new Map(tests.map((t) => [t.id, t]));
 
   const tone =
@@ -100,18 +105,18 @@ function ClauseBlock({ clause }: { clause: ClauseScore }) {
 
 export function SubmissionCard({
   row,
+  assignment,
   index,
   expanded,
   onToggle,
-  onDiagnosis,
   onOpenStudentView,
   cohortCount = 0,
 }: {
   row: Row;
+  assignment: Assignment;
   index: number;
   expanded: boolean;
   onToggle: () => void;
-  onDiagnosis?: (d: Diagnosis) => void;
   onOpenStudentView?: () => void;
   /** Other submissions that failed in exactly the same way. */
   cohortCount?: number;
@@ -210,10 +215,10 @@ export function SubmissionCard({
 
             <DiagnosisPanel
               submissionId={row.submission.id}
+              assignment={assignment}
               code={row.submission.code}
               report={row.report}
               active={expanded}
-              onSettled={onDiagnosis}
             />
 
             <div className="grid lg:grid-cols-2 gap-0">
@@ -266,7 +271,7 @@ export function SubmissionCard({
                 )}
 
                 {row.report.clauses.map((c) => (
-                  <ClauseBlock key={c.clause} clause={c} />
+                  <ClauseBlock key={c.clause} clause={c} assignment={assignment} />
                 ))}
               </div>
             </div>

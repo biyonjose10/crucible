@@ -2,11 +2,10 @@
 
 import { useEffect, useRef } from "react";
 import { motion } from "motion/react";
-import { MEDIAN } from "@/lib/assignment";
 import { useDiagnosis } from "@/lib/useDiagnosis";
 import type { ScoreReport } from "@/lib/scoring";
+import type { Assignment } from "@/lib/types";
 import type { Submission } from "@/fixtures/class";
-import type { Diagnosis } from "@/lib/diagnose";
 
 /**
  * The same result, addressed to the person who has to act on it.
@@ -22,23 +21,21 @@ import type { Diagnosis } from "@/lib/diagnose";
  */
 export function StudentView({
   submission,
+  assignment,
   report,
   onClose,
-  onDiagnosis,
 }: {
   submission: Submission;
+  assignment: Assignment;
   report: ScoreReport;
   onClose: () => void;
-  /** Reports real spend upward. Without it this view billed silently. */
-  onDiagnosis?: (d: Diagnosis) => void;
 }) {
   const { text, streaming, result } = useDiagnosis(
     submission.id,
-    MEDIAN.slug,
+    assignment,
     submission.code,
     report,
     true,
-    onDiagnosis,
   );
 
   const panelRef = useRef<HTMLDivElement>(null);
@@ -116,7 +113,7 @@ export function StudentView({
         <div className="flex items-start justify-between gap-6">
           <div>
             <p className="font-mono text-[11px] uppercase tracking-widest text-faint">
-              {MEDIAN.title}
+              {assignment.title}
             </p>
             <h1 className="mt-2 text-2xl font-semibold tracking-tight">
               Feedback for {submission.student}
@@ -174,7 +171,7 @@ export function StudentView({
                 (c) => c.clauseId === clause.clause,
               );
               const example = clause.results.find((r) => r.status === "fail");
-              const test = MEDIAN.tests.find((t) => t.id === example?.id);
+              const test = assignment.tests.find((t) => t.id === example?.id);
               return (
                 <li key={clause.clause} className="border-l-2 border-fail/50 pl-5">
                   <p className="text-[14px] font-medium leading-snug">
@@ -243,7 +240,7 @@ export function StudentView({
           <p className="font-mono text-[11px] leading-relaxed text-faint">
             {report.status === "inconclusive"
               ? "Mark withheld pending review."
-              : `Mark ${report.earned} out of ${report.total}, from ${MEDIAN.tests.length} automated tests. Computed by running your code — not by the model that wrote this feedback.`}
+              : `Mark ${report.earned} out of ${report.total}, from ${assignment.tests.length} automated tests. Computed by running your code — not by the model that wrote this feedback.`}
           </p>
         </div>
       </div>

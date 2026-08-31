@@ -1,10 +1,10 @@
 "use client";
 
 import { motion } from "motion/react";
-import { MEDIAN } from "@/lib/assignment";
 import { useDiagnosis } from "@/lib/useDiagnosis";
 import type { Diagnosis } from "@/lib/diagnose";
 import type { ScoreReport } from "@/lib/scoring";
+import type { Assignment } from "@/lib/types";
 
 const REJECTION_COPY: Record<string, string> = {
   malformed: "Malformed claim",
@@ -16,18 +16,20 @@ const REJECTION_COPY: Record<string, string> = {
   duplicate: "Duplicate of an earlier claim",
 };
 
-function testLabel(testId: string) {
-  return MEDIAN.tests.find((t) => t.id === testId)?.label ?? testId;
+function testLabel(assignment: Assignment, testId: string) {
+  return assignment.tests.find((t) => t.id === testId)?.label ?? testId;
 }
 
 export function DiagnosisPanel({
   submissionId,
+  assignment,
   code,
   report,
   active,
   onSettled,
 }: {
   submissionId: string;
+  assignment: Assignment;
   code: string;
   report: ScoreReport;
   active: boolean;
@@ -35,7 +37,7 @@ export function DiagnosisPanel({
 }) {
   const { text, streaming, result, error } = useDiagnosis(
     submissionId,
-    MEDIAN.slug,
+    assignment,
     code,
     report,
     active,
@@ -128,7 +130,9 @@ export function DiagnosisPanel({
                   <p className="mt-1.5 font-mono text-[10px] text-faint">
                     clause C{c.clauseId}
                     {c.line !== undefined && ` · line ${c.line}`} · evidenced by{" "}
-                    <span className="text-muted">{testLabel(c.testId)}</span>
+                    <span className="text-muted">
+                      {testLabel(assignment, c.testId)}
+                    </span>
                   </p>
                 </li>
               ))}
