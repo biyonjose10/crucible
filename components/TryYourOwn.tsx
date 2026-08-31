@@ -1,7 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { Assignment } from "@/lib/types";
+import {
+  editForBackspace,
+  editForEnter,
+  editForTab,
+  type Edit,
+} from "@/lib/code-editing";
 import { GeneratedSuite } from "./GeneratedSuite";
 
 /**
@@ -58,6 +64,18 @@ export function TryYourOwn({
   onGrade: (code: string, against: Assignment) => Promise<void>;
   disabled: boolean;
 }) {
+  const codeRef = useRef<HTMLTextAreaElement>(null);
+  /**
+   * Armed by Escape, spent by the next Tab.
+   *
+   * Tab has to insert an indent — this is Python, and a box that cannot indent
+   * cannot accept a function body. But Tab is also the only way a keyboard user
+   * leaves a textarea, and silently swallowing it traps them. Escape-then-Tab
+   * is the convention every code editor settled on for exactly this, and the
+   * hint under the box says so.
+   */
+  const tabExits = useRef(false);
+
   const [problem, setProblem] = useState("");
   const [code, setCode] = useState(SEED);
   const [step, setStep] = useState<Step>("idle");
@@ -66,6 +84,82 @@ export function TryYourOwn({
 
   const busy = step !== "idle" && step !== "review";
   const custom = problem.trim().length > 0;
+
+  /**
+   * Apply an edit to the code box.
+   *
+   * `execCommand("insertText")` rather than setting state directly: it is the
+   * only way to change a textarea that keeps the browser's own undo stack
+   * intact, so Ctrl+Z still walks back through what the visitor typed. It is
+   * formally deprecated and has no replacement for this, which is why the
+   * manual path below exists — it costs undo, and only runs if the first fails.
+   */
+  const applyToCode = (edit: Edit) => {
+    const el = codeRef.current;
+    if (!el) return;
+
+    el.focus();
+    el.setSelectionRange(edit.start, edit.end);
+
+    let inserted = false;
+    try {
+      inserted = document.execCommand("insertText", false, edit.text);
+    } catch {
+      inserted = false;
+    }
+
+    if (!inserted) {
+      const next = el.value.slice(0, edit.start) + edit.text + el.value.slice(edit.end);
+      setCode(next);
+      el.value = next;
+    }
+
+    el.setSelectionRange(edit.caret, edit.caretEnd ?? edit.caret);
+  };
+
+  const onCodeKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const el = e.currentTarget;
+    const { selectionStart: from, selectionEnd: to, value } = el;
+
+    // Ctrl/Cmd+Enter submits, the convention every code box uses.
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      void (generated ? grade(generated) : primary());
+      return;
+    }
+
+    if (e.key === "Escape") {
+      tabExits.current = true;
+      return;
+    }
+
+    if (e.key === "Tab") {
+      if (tabExits.current) {
+        tabExits.current = false;
+        return; // let the browser move focus
+      }
+      e.preventDefault();
+      applyToCode(editForTab(value, from, to, e.shiftKey));
+      return;
+    }
+
+    // Any other key means the visitor is still writing, not leaving.
+    tabExits.current = false;
+
+    if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      e.preventDefault();
+      applyToCode(editForEnter(value, from, to));
+      return;
+    }
+
+    if (e.key === "Backspace") {
+      const edit = editForBackspace(value, from, to);
+      if (edit) {
+        e.preventDefault();
+        applyToCode(edit);
+      }
+    }
+  };
 
   /** Grade against whichever assignment is in play. */
   const grade = async (against: Assignment) => {
@@ -164,17 +258,11 @@ export function TryYourOwn({
         Your Python
       </label>
       <textarea
+        ref={codeRef}
         id="own-code"
         value={code}
         onChange={(e) => setCode(e.target.value)}
-        onKeyDown={(e) => {
-          // Ctrl/Cmd+Enter submits, the convention every code box uses. Tab is
-          // left alone so keyboard users can still leave the field.
-          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-            e.preventDefault();
-            void (generated ? grade(generated) : primary());
-          }
-        }}
+        onKeyDown={onCodeKeyDown}
         spellCheck={false}
         rows={8}
         className="mt-2 w-full resize-y rounded-lg border border-line bg-surface p-4
@@ -182,6 +270,9 @@ export function TryYourOwn({
                    outline-none transition-colors
                    focus:border-line-hi focus-visible:ring-1 focus-visible:ring-ink/30"
       />
+      <p className="mt-2 font-mono text-[11px] text-faint">
+        Tab indents · Shift+Tab outdents · Esc then Tab to leave the box
+      </p>
 
       {generated ? (
         <GeneratedSuite
