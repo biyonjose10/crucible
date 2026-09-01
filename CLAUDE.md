@@ -216,7 +216,7 @@ npm run check-suite    # authoring: does each generated suite pass its own refer
 npm run scan-secrets   # before any push
 npm run setup-hooks    # once per clone
 npx next build         # production build
-npx vercel --prod --yes
+npx vercel --prod --yes --scope biyonjose10-5177s-projects   # bare command 401s
 ```
 
 ## Fixtures — these numbers are load-bearing
