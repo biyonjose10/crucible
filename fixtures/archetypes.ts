@@ -1,12 +1,13 @@
 /**
- * Eight hand-authored submission archetypes.
+ * Nine hand-authored submission archetypes.
  *
  * These are not random. Each one exercises a specific property of the grader,
  * and together they are the demo: the pedagogy case, the timeout case, the
- * prompt-injection case, and the autograder-gaming case.
+ * prompt-injection case, the forged-result case, and the autograder-gaming
+ * case.
  *
  * `expected` records the score the *test suite* should produce. It is asserted
- * in scripts/verify.mjs — if a change to the rubric or harness moves any of
+ * in scripts/verify.ts — if a change to the rubric or harness moves any of
  * these numbers, the build tells us.
  */
 

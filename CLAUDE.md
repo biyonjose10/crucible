@@ -118,8 +118,10 @@ Three things hold that up. Do not remove any of them:
    its own author cannot pass is broken; a suite nothing can fail is vacuous,
    and hands out a mark that means nothing. One retry, carrying the failure back
    — a blind retry mostly repeats the mistake. `npm run check-suite` drives the
-   same loop from Node against a running dev server; 10/10 sample problems
-   produced a passing suite on 2026-08-31, 9 of them first try.
+   same loop from Node against a running dev server; on 2026-09-01 all five
+   sample problems passed both halves first try (reference full marks, stub
+   zero). Across ~10 runs during development the retry fired once — that is the
+   honest first-attempt failure rate, not the 10/10 an early note claimed.
    **Deliberate trade:** a degenerate problem whose correct answer really is
    `None` is now rejected. That is right — a problem the trivial stub answers
    perfectly is not gradeable.
