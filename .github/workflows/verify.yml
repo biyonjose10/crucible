@@ -31,6 +31,14 @@ jobs:
       - name: Verification gate
         run: npm run verify
 
+      # The gate above drives the Node path in lib/runner.ts. The browser runs
+      # public/grader.worker.js, which reimplements the same drive loop because
+      # it is served verbatim and cannot import from lib/. This executes that
+      # exact file, so a protocol change cannot pass CI and still leave the
+      # live site unable to grade.
+      - name: Sandbox worker
+        run: npm run check-worker
+
       - name: Production build
         run: npm run build
 

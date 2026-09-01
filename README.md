@@ -203,9 +203,12 @@ Each archetype runs in its own process with a 5-second execution budget measured
 Two more checks, run separately:
 
 ```bash
-npm test            # unit tests for the pure modules (test/)
-npm run check-suite # authoring, driven from Node against a running dev server
+npm test             # unit tests for the pure modules (test/)
+npm run check-worker # executes the shipped sandbox worker
+npm run check-suite  # authoring, driven from Node against a running dev server
 ```
+
+`npm run check-worker` exists because the gate above drives the Node path in `lib/runner.ts`, while the browser runs `public/grader.worker.js` — a separate file, served verbatim, which cannot import from `lib/` and so reimplements the same drive loop. It executes that exact file against every archetype, patching only the two lines that assume a browser (the Pyodide import specifier and `indexURL`) and asserting both patches applied, so it cannot quietly end up testing nothing. It cannot cover `Worker.terminate()`, so the infinite-loop archetype is left to the gate.
 
 `npm test` needs no network and no key. `npm run check-suite` needs `npm run dev` in another terminal and a `GEMINI_API_KEY`; it runs the whole authoring loop — ask `/api/author` for a suite, execute the model's reference solution against it, execute a do-nothing stub against it — over a set of sample problems, or over one you pass on the command line:
 

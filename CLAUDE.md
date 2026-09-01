@@ -211,6 +211,7 @@ on the endpoint that still has no per-visitor limit at all. The size caps in
 ```
 npm run dev            # predev copies pyodide first
 npm run verify         # THE GATE: import hygiene + 15 archetypes + determinism
+npm run check-worker   # runs the SHIPPED public/grader.worker.js — verify uses the Node path
 npm run check-suite    # authoring: does each generated suite pass its own reference?
 npm run scan-secrets   # before any push
 npm run setup-hooks    # once per clone
