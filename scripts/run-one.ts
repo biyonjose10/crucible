@@ -8,7 +8,7 @@
 import { loadPyodide } from "pyodide";
 import { ARCHETYPES } from "../fixtures/archetypes";
 import { MEDIAN } from "../lib/assignment";
-import { parseOutcome, runSubmission } from "../lib/runner";
+import { buildRunRequest, executeProbes, judge } from "../lib/runner";
 
 async function main() {
   const key = process.argv[2];
@@ -19,26 +19,23 @@ async function main() {
   }
 
   const started = Date.now();
-  const lines: string[] = [];
 
   const py = await loadPyodide({ stdout: () => {} });
   // Signal to the parent that boot finished, so its timeout measures execution.
   process.stderr.write("READY\n");
 
-  const marker = runSubmission(py as never, archetype.code, MEDIAN.tests, (line) =>
-    lines.push(line),
-  );
+  const request = buildRunRequest(archetype.code, MEDIAN.tests);
+  const { probes, importError } = executeProbes(py as never, request);
 
-  const outcome = parseOutcome(
+  const outcome = judge(
     archetype.key,
     MEDIAN.tests,
-    lines,
+    probes,
     Date.now() - started,
     undefined,
-    marker,
+    importError,
   );
   process.stdout.write("OUTCOME:" + JSON.stringify(outcome) + "\n");
-
 }
 
 main();

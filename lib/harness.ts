@@ -1,150 +1,117 @@
-import type { TestCase } from "./types";
-
 export const SOLUTION_DIR = "/home/pyodide";
 export const SOLUTION_PATH = `${SOLUTION_DIR}/solution.py`;
 
+/**
+ * The sandbox side of grading — and deliberately almost nothing.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ *  NOTHING HERE DECIDES ANYTHING.
+ *
+ *  This module produces three kinds of Python: a setup program, an import
+ *  program, and one expression per test. Every one of them *evaluates*; none
+ *  of them compares, scores, or reports. The pass/fail decision is made in
+ *  TypeScript, in lib/runner.ts, on values that have already crossed out of
+ *  the interpreter the student's code runs in.
+ *
+ *  That is the whole point, and it was learned the hard way. This file used
+ *  to run the comparison in Python and print result lines to a stdout channel
+ *  tagged with an unguessable per-run marker. Both defences were real and both
+ *  were beside the point: Pyodide executes `runPython` in `__main__`, and a
+ *  submission is imported *before* the tests run, so the student's own module
+ *  could reach `sys.modules["__main__"].__dict__` and simply help itself —
+ *  replace the comparator with `lambda got, expected: True`, read the marker
+ *  and write to the saved stdout handle, or call the emitter directly. Each
+ *  scored 10/10 for code worth 8/10. They are the `patched-comparator`,
+ *  `stolen-marker` and `borrowed-emit` archetypes in scripts/verify.ts.
+ *
+ *  An unguessable secret is no defence when it is a global in a namespace the
+ *  attacker can read. The fix is not a better secret; it is having nothing
+ *  worth stealing in the interpreter at all.
+ * ─────────────────────────────────────────────────────────────────────────
+ */
+
 /** Longest traceback we keep. Real evidence, but bounded token cost. */
-const MAX_TRACE = 2000;
+export const MAX_TRACE = 2000;
 
 /**
- * A single-use marker for one run's result lines.
+ * Prepare the interpreter for one submission.
  *
- * Originally this was a fixed constant, which was a hole: the submission is
- * imported before any test runs, so a student who printed the constant with a
- * hand-written result object got their forgery into the same stdout stream the
- * harness writes to — and since the parser takes the first report per test id,
- * the forgery *shadowed* the real result. A submission could award itself full
- * marks, which is precisely the failure this project exists to rule out. It is
- * covered by the `forged-result` archetype in scripts/verify.ts.
+ * Writes the student's source, resets the module cache, and points stdout at
+ * a sink that discards. That last part is now housekeeping rather than
+ * security: results no longer travel as text, so a submission that prints is
+ * merely noisy. It is discarded rather than buffered because a loop printing
+ * for five seconds would otherwise grow a string until the tab died.
  *
- * The marker is now unguessable and generated per run. That is the second line
- * of defence; the first is that student output never reaches this stream at
- * all (see `buildTestBody`).
+ * The source is embedded via json.loads rather than interpolated into a
+ * literal, so no combination of quotes, backslashes or newlines can break out
+ * of the string and alter the program around it.
  */
-function newMarker(): string {
-  return `@@CRU-${crypto.randomUUID().replace(/-/g, "")}@@`;
-}
-
-/**
- * Generate the Python harness that runs a student's module against the tests.
- *
- * Results are emitted one JSON line at a time and flushed immediately, so that
- * if the interpreter is killed mid-run (an infinite loop, say) every result
- * produced before the kill still survives. Tests that never reported are
- * scored "inconclusive" — never assumed to pass, never assumed to fail.
- *
- * Student code is executed with stdout redirected into a sink, both on import
- * and around every call, so a submission cannot write to the channel the
- * harness reports on. `sys.__stdout__` is redirected alongside it, because
- * `contextlib.redirect_stdout` leaves that alias untouched and it would
- * otherwise be an obvious way back to the real stream.
- */
-function buildTestBody(tests: TestCase[], marker: string): string {
-  const payload = JSON.stringify(
-    tests.map((t) => ({ id: t.id, expr: t.expr, kind: t.kind, expected: t.expected })),
-  );
-
-  return `
-import contextlib, io, json, math, sys, traceback
-
-TESTS = json.loads(${JSON.stringify(payload)})
-MAX_TRACE = ${MAX_TRACE}
-MARKER = ${JSON.stringify(marker)}
-
-_HARNESS_OUT = sys.stdout
-_SINK = io.StringIO()
-sys.__stdout__ = _SINK
-
-def _emit(o):
-    print(MARKER + json.dumps(o), file=_HARNESS_OUT, flush=True)
-
-def _trace():
-    raw = traceback.format_exc().split("\\n")
-    # Drop our own frames. A student debugging their code should see their
-    # file and their line numbers, not the scaffolding that called them.
-    kept = [ln for ln in raw if '"<exec>"' not in ln and '"<string>"' not in ln]
-    t = "\\n".join(kept)
-    return t[:MAX_TRACE] + (" ... [truncated]" if len(t) > MAX_TRACE else "")
-
-def _same(got, expected):
-    numeric = (int, float)
-    if isinstance(got, bool) or isinstance(expected, bool):
-        return got is expected
-    if isinstance(got, numeric) and isinstance(expected, numeric):
-        return math.isclose(got, expected, rel_tol=1e-9, abs_tol=1e-9)
-    return got == expected
-
-try:
-    with contextlib.redirect_stdout(_SINK):
-        import solution
-except BaseException:
-    _emit({"kind": "import_error", "trace": _trace()})
-else:
-    ns = {"__builtins__": __builtins__, "solution": solution}
-    for _k in dir(solution):
-        if not _k.startswith("__"):
-            ns[_k] = getattr(solution, _k)
-
-    for t in TESTS:
-        try:
-            with contextlib.redirect_stdout(_SINK):
-                value = eval(t["expr"], dict(ns))
-        except BaseException as exc:
-            name = type(exc).__name__
-            if t["kind"] == "raises" and name == t["expected"]:
-                _emit({"kind": "result", "id": t["id"], "status": "pass",
-                       "got": name, "expected": t["expected"]})
-            else:
-                _emit({"kind": "result", "id": t["id"], "status": "fail",
-                       "got": name + ": " + str(exc),
-                       "expected": ("raises " + str(t["expected"])) if t["kind"] == "raises" else repr(t["expected"]),
-                       "trace": _trace()})
-        else:
-            if t["kind"] == "raises":
-                _emit({"kind": "result", "id": t["id"], "status": "fail",
-                       "got": "returned " + repr(value) + " without raising",
-                       "expected": "raises " + str(t["expected"])})
-            else:
-                ok = _same(value, t["expected"])
-                _emit({"kind": "result", "id": t["id"], "status": "pass" if ok else "fail",
-                       "got": repr(value), "expected": repr(t["expected"])})
-`;
-}
-
-/**
- * Build a complete, self-contained Python program for one submission.
- *
- * Everything the sandbox needs is in this string: the student's code, the
- * module reset, and the test harness. That keeps the Web Worker completely
- * generic — it knows how to run Python and nothing about grading — so the
- * browser and the Node verification path execute byte-identical programs.
- *
- * The student's source is embedded via json.loads rather than interpolated
- * into a literal, so no combination of quotes, backslashes or newlines in a
- * submission can break out of the string and alter the harness.
- *
- * Returns the marker alongside the program: the caller needs it to tell the
- * harness's own lines apart from anything else on the stream, and it differs
- * every run.
- */
-export function buildProgram(
-  solution: string,
-  tests: TestCase[],
-): { program: string; marker: string } {
-  const marker = newMarker();
+export function buildSetup(solution: string): string {
   const embedded = JSON.stringify(JSON.stringify(solution));
 
-  const preamble = [
+  return [
     "import json, sys",
+    "",
+    "class _CruSink:",
+    "    def write(self, s):",
+    "        return len(s)",
+    "    def flush(self):",
+    "        pass",
+    "",
+    "sys.stdout = _CruSink()",
+    "sys.__stdout__ = sys.stdout",
+    "",
     `SOLUTION = json.loads(${embedded})`,
-    `with open("${SOLUTION_PATH}", "w") as _f:`,
+    `with open(${JSON.stringify(SOLUTION_PATH)}, "w") as _f:`,
     "    _f.write(SOLUTION)",
-    `if "${SOLUTION_DIR}" not in sys.path:`,
-    `    sys.path.insert(0, "${SOLUTION_DIR}")`,
+    `if ${JSON.stringify(SOLUTION_DIR)} not in sys.path:`,
+    `    sys.path.insert(0, ${JSON.stringify(SOLUTION_DIR)})`,
     // A module cached from a previous submission would silently grade the
     // wrong student's code.
     'sys.modules.pop("solution", None)',
+    "",
   ].join("\n");
+}
 
-  return { program: preamble + buildTestBody(tests, marker), marker };
+/**
+ * Import the submission and report whether it imported.
+ *
+ * Evaluates to the traceback string on failure and to None on success, which
+ * the caller reads as a return value rather than off a stream. On success the
+ * module's public names are copied into globals so each test expression can
+ * call `median(...)` rather than `solution.median(...)`.
+ *
+ * Student names landing in `__main__` is safe in a way it very much was not
+ * before: there is no longer anything in that namespace whose corruption
+ * could change a mark. A submission that defines its own `repr` will make its
+ * own feedback read strangely and will not move a single point.
+ */
+export const IMPORT_PROGRAM = [
+  "import traceback",
+  "try:",
+  "    import solution",
+  "except BaseException:",
+  "    _cru_import_error = traceback.format_exc()",
+  "else:",
+  "    _cru_import_error = None",
+  "    for _cru_k in dir(solution):",
+  "        if not _cru_k.startswith('__'):",
+  "            globals()[_cru_k] = getattr(solution, _cru_k)",
+  "_cru_import_error",
+].join("\n");
+
+/**
+ * One test expression, wrapped so the value arrives with its Python repr.
+ *
+ * The repr is display only — it is what the student and the diagnosis model
+ * see as "got". The comparison never touches it; lib/runner.ts compares the
+ * *value*. A submission that patches `repr` can therefore make its own
+ * feedback misleading and cannot alter its score, which is the right side of
+ * that trade to be on.
+ *
+ * The lambda is built fresh inside the expression, so there is no name here
+ * for a submission to have replaced beforehand.
+ */
+export function buildProbe(expr: string): string {
+  return `(lambda _cru_v: (_cru_v, repr(_cru_v)))(${expr})`;
 }

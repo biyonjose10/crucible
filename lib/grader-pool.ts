@@ -1,5 +1,5 @@
-import { buildProgram } from "./harness";
-import { parseOutcome } from "./runner";
+import { buildRunRequest, judge } from "./runner";
+import type { Probe } from "./runner";
 import type { ExecutionOutcome, TestCase } from "./types";
 
 /**
@@ -16,8 +16,8 @@ import type { ExecutionOutcome, TestCase } from "./types";
  *      worker is replaced immediately, so one bad submission costs one slot
  *      for one boot, not the run.
  *
- * A submission killed this way is never guessed at. Whatever it printed before
- * the kill is kept, and every test that did not report is scored
+ * A submission killed this way is never guessed at. Every test that finished
+ * before the kill is kept, and every test that did not is scored
  * "inconclusive" — see lib/scoring.ts.
  */
 
@@ -86,7 +86,7 @@ export class GraderPool {
     if (!slot) {
       // The pool was disposed while this call was queued. Report it the same
       // way as any other failure to execute: inconclusive, never guessed at.
-      return parseOutcome(submissionId, tests, [], 0, "worker_error", "");
+      return judge(submissionId, tests, [], 0, "worker_error");
     }
     try {
       return await this.exec(slot, submissionId, code, tests);
@@ -191,13 +191,14 @@ export class GraderPool {
       await slot.ready;
     } catch {
       this.replace(slot);
-      return parseOutcome(submissionId, tests, [], 0, "worker_error", "");
+      return judge(submissionId, tests, [], 0, "worker_error");
     }
 
-    const { program, marker } = buildProgram(code, tests);
+    const request = buildRunRequest(code, tests);
     const jobId = ++this.jobSeq;
-    const lines: string[] = [];
+    const probes: Probe[] = [];
     const started = Date.now();
+    let importError: string | undefined;
 
     // Captured now: on timeout `slot.worker` is swapped for a replacement, and
     // we must still detach from the worker we actually attached to.
@@ -213,13 +214,13 @@ export class GraderPool {
         clearTimeout(timer);
         worker.removeEventListener("message", onMessage);
         resolve(
-          parseOutcome(
+          judge(
             submissionId,
             tests,
-            lines,
+            probes,
             Date.now() - started,
             inconclusive,
-            marker,
+            importError,
           ),
         );
       };
@@ -228,9 +229,16 @@ export class GraderPool {
         const msg = event.data;
         if (!msg || (msg.jobId != null && msg.jobId !== jobId)) return;
 
-        if (msg.type === "stdout") lines.push(String(msg.chunk));
-        else if (msg.type === "done") finish();
-        else if (msg.type === "error") finish("worker_error");
+        if (msg.type === "probe") {
+          // Kept as they arrive, so a submission killed part-way through still
+          // reports everything that finished. The rest score "inconclusive".
+          if (msg.probe) probes.push(msg.probe as Probe);
+        } else if (msg.type === "done") {
+          if (typeof msg.importError === "string") importError = msg.importError;
+          finish();
+        } else if (msg.type === "error") {
+          finish("worker_error");
+        }
       };
 
       worker.addEventListener("message", onMessage);
@@ -241,7 +249,13 @@ export class GraderPool {
       }, this.execTimeoutMs);
 
       // Boot may still be in flight; the worker queues this until it is ready.
-      worker.postMessage({ type: "run", jobId, program });
+      worker.postMessage({
+        type: "run",
+        jobId,
+        setup: request.setup,
+        importProgram: request.importProgram,
+        probes: request.probes,
+      });
     });
   }
 }

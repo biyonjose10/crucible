@@ -18,7 +18,7 @@
 import { loadPyodide, type PyodideInterface } from "pyodide";
 
 import { stubFor, validateTransported } from "../lib/authoring";
-import { parseOutcome, runSubmission } from "../lib/runner";
+import { buildRunRequest, executeProbes, judge } from "../lib/runner";
 import { score } from "../lib/scoring";
 import type { Assignment } from "../lib/types";
 
@@ -66,16 +66,16 @@ async function requestSuite(
 /** Run one submission against one suite. Mirrors GraderPool.run in the browser. */
 function runAgainst(py: PyodideInterface, assignment: Assignment, code: string) {
   const started = Date.now();
-  const lines: string[] = [];
-  const marker = runSubmission(py as never, code, assignment.tests, (l) => lines.push(l));
+  const request = buildRunRequest(code, assignment.tests);
+  const { probes, importError } = executeProbes(py as never, request);
 
-  return parseOutcome(
+  return judge(
     "reference",
     assignment.tests,
-    lines,
+    probes,
     Date.now() - started,
     undefined,
-    marker,
+    importError,
   );
 }
 

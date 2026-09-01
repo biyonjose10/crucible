@@ -22,7 +22,7 @@ jobs:
         run: npm run typecheck
 
       # The central claim of the project, enforced on every push:
-      # lib/scoring.ts reaches no language model, all nine archetypes score
+      # lib/scoring.ts reaches no language model, all fifteen archetypes score
       # exactly what their tests dictate, and the same submission graded twice
       # produces an identical report.
       - name: Unit tests

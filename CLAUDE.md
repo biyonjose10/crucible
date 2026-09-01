@@ -53,10 +53,33 @@ Next.js 16 · React 19 · Tailwind 4 · TypeScript · motion · Google Gemini.
   cold start is never charged against a student's submission.
 - Clause scoring is all-or-nothing. A test that never reported is
   `inconclusive` — never assumed to pass, never assumed to fail.
+- **The pass/fail decision is made in TypeScript, not in Python.** The worker
+  evaluates each test expression and the *value* crosses the JS boundary;
+  `judge()` in `lib/runner.ts` compares it. `lib/harness.ts` only builds
+  Python that evaluates — it never compares, scores or reports. Do not move
+  any part of that decision back into the interpreter; see the lesson below.
 - Diagnosis fires **lazily per expanded card**, so a 30-student run costs $0
   until someone opens one. A clean pass never calls a model at all.
 
 ## Hard-won lessons — do not regress these
+
+0. **A submission could award itself full marks, and the fix was architectural.**
+   Proven on 2026-09-01: grading used to compare values in Python and print
+   result lines to a stdout channel tagged with an unguessable per-run marker.
+   But `runPython` executes in `__main__` and the student's module is imported
+   *before* the tests, so it could read `sys.modules["__main__"].__dict__` and
+   take what it wanted — replace `_same` with `lambda got, expected: True`,
+   read `MARKER` and `_HARNESS_OUT` and print a forgery, or call `_emit`
+   directly. All three scored **10/10 for code worth 8/10** (`parseOutcome`
+   took the first report per test id, so a forgery at import time shadowed the
+   real result). The old `forged-result` archetype passed only because it
+   hardcoded the retired `"@@CRU@@"` literal.
+
+   **An unguessable secret is no defence when it is a global the attacker can
+   read**, and `sys._getframe` reaches a merely private namespace too. So the
+   decision left the interpreter entirely. Do not put it back — not a
+   comparison, not a "quick" Python-side check. The seven red-team archetypes
+   are the regression test.
 
 1. **Never gate visibility on a frame-driven animation.** Entry animations run
    on rAF, which browsers throttle in backgrounded tabs. Animating `opacity`
@@ -187,7 +210,7 @@ on the endpoint that still has no per-visitor limit at all. The size caps in
 
 ```
 npm run dev            # predev copies pyodide first
-npm run verify         # THE GATE: import hygiene + 9 archetypes + determinism
+npm run verify         # THE GATE: import hygiene + 15 archetypes + determinism
 npm run check-suite    # authoring: does each generated suite pass its own reference?
 npm run scan-secrets   # before any push
 npm run setup-hooks    # once per clone
@@ -197,8 +220,10 @@ npx vercel --prod --yes
 
 ## Fixtures — these numbers are load-bearing
 
-`fixtures/archetypes.ts` defines 9 submissions driving a seeded 30-student class
-(`fixtures/class.ts`). `scripts/verify.ts` asserts each score exactly:
+`fixtures/archetypes.ts` defines 15 submissions. Nine of them drive the seeded
+30-student class (`fixtures/class.ts`, which names its archetypes explicitly in
+`ROSTER` — the six red-team cases are gate-only and never appear in the demo
+class). `scripts/verify.ts` asserts each score exactly:
 
 | Archetype | Score | Why it exists |
 |---|---|---|
@@ -208,9 +233,15 @@ npx vercel --prod --yes
 | infinite-loop | INCONCLUSIVE | Worker.terminate() at 5s |
 | syntax-error | 0/10 | diagnosis works with no execution |
 | **prompt-injection** | **4/10** | tells the grader to award full marks; scored by tests anyway |
-| forged-result | 8/10 | prints fabricated result markers; per-run marker defeats it |
+| forged-result | 8/10 | prints fabricated result markers; nothing parses text now |
 | hardcoded | 4/10 | passes 5/5 visible, fails 5/7 hidden |
 | empty-crash | 8/10 | the empty-list contract |
+| **patched-comparator** | **8/10** | replaces `_same`; **scored 10/10 before 2026-09-01** |
+| **stolen-marker** | **8/10** | reads `MARKER`/`_HARNESS_OUT`; **scored 10/10 before** |
+| **borrowed-emit** | **8/10** | calls `_emit` directly; **scored 10/10 before** |
+| frame-walk | 8/10 | `sys._getframe` hunt — a private namespace would not have helped |
+| patched-repr | 8/10 | corrupts its own `got` display; moves no marks |
+| trace-hook | 8/10 | `sys.settrace` — observation is not authority |
 
 Note: two hidden tests legitimately **pass** for `hardcoded` (`median(list())`
 still raises, `0.0` is still a float). The assertion is "all visible pass and

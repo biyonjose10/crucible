@@ -1,5 +1,5 @@
 /**
- * Nine hand-authored submission archetypes.
+ * Fifteen hand-authored submission archetypes.
  *
  * These are not random. Each one exercises a specific property of the grader,
  * and together they are the demo: the pedagogy case, the timeout case, the
@@ -137,6 +137,163 @@ def median(nums: list[float]) -> float:
 # stdout, these would arrive first and win.
 for _t in ("t2a", "t2b", "t2c"):
     print("@@CRU@@" + json.dumps({"kind": "result", "id": _t, "status": "pass"}))
+
+
+def median(nums: list[float]) -> float:
+    ordered = sorted(nums)
+    n = len(ordered)
+    if n == 0:
+        raise ValueError("empty list")
+    return float(ordered[n // 2])
+`,
+  },
+  // ── Red team ────────────────────────────────────────────────────────────
+  //
+  // Six submissions that attack the grader rather than the problem. The first
+  // three are not hypothetical: each scored 10/10 for this same 8/10 code on
+  // 2026-09-01, before grading moved out of the interpreter. They probe rather
+  // than assume, so each one reports its honest mark instead of merely
+  // crashing — the point is that the attack finds nothing, not that it errors.
+
+  {
+    key: "patched-comparator",
+    label: "Rewrites the harness comparator",
+    demonstrates:
+      "Replaces the equality check in __main__ with one that always agrees. Once scored 10/10; the comparison now happens in TypeScript, so this writes a global nothing reads.",
+    expected: { earned: 8, status: "graded" },
+    code: `import sys
+
+sys.modules["__main__"].__dict__["_same"] = lambda got, expected: True
+
+
+def median(nums: list[float]) -> float:
+    ordered = sorted(nums)
+    n = len(ordered)
+    if n == 0:
+        raise ValueError("empty list")
+    return float(ordered[n // 2])
+`,
+  },
+  {
+    key: "stolen-marker",
+    label: "Reads the run's marker out of the harness",
+    demonstrates:
+      "The marker was unguessable but was still a global the submission could read. Once scored 10/10; there is no marker now, because results are no longer text.",
+    expected: { earned: 8, status: "graded" },
+    code: `import json, sys
+
+_g = sys.modules["__main__"].__dict__
+_marker = _g.get("MARKER")
+_out = _g.get("_HARNESS_OUT")
+
+if _marker and _out:
+    for _t in ("t2a", "t2b", "t2c"):
+        print(_marker + json.dumps({"kind": "result", "id": _t, "status": "pass"}),
+              file=_out, flush=True)
+
+
+def median(nums: list[float]) -> float:
+    ordered = sorted(nums)
+    n = len(ordered)
+    if n == 0:
+        raise ValueError("empty list")
+    return float(ordered[n // 2])
+`,
+  },
+  {
+    key: "borrowed-emit",
+    label: "Calls the harness's own emitter",
+    demonstrates:
+      "No marker needed if the emitter itself can be called. Once scored 10/10; there is no emitter now.",
+    expected: { earned: 8, status: "graded" },
+    code: `import sys
+
+_emit = sys.modules["__main__"].__dict__.get("_emit")
+
+if _emit:
+    for _t in ("t2a", "t2b", "t2c"):
+        _emit({"kind": "result", "id": _t, "status": "pass"})
+
+
+def median(nums: list[float]) -> float:
+    ordered = sorted(nums)
+    n = len(ordered)
+    if n == 0:
+        raise ValueError("empty list")
+    return float(ordered[n // 2])
+`,
+  },
+  {
+    key: "frame-walk",
+    label: "Searches the call stack for the grader",
+    demonstrates:
+      "A private namespace would still be reachable through sys._getframe, which is why the fix was to move the decision out of Python rather than to hide it better. The walk finds nothing to sabotage.",
+    expected: { earned: 8, status: "graded" },
+    code: `import sys
+
+_targets = ("_same", "_emit", "MARKER", "TESTS", "_HARNESS_OUT")
+_found = []
+_depth = 0
+try:
+    while True:
+        _frame = sys._getframe(_depth)
+        for _name in _targets:
+            if _name in _frame.f_globals or _name in _frame.f_locals:
+                _found.append(_name)
+        _depth += 1
+except ValueError:
+    pass
+
+# Anything found gets broken. Breaking the grader can only make this
+# submission unmarkable, never correct.
+for _name in _found:
+    sys.modules["__main__"].__dict__[_name] = None
+
+
+def median(nums: list[float]) -> float:
+    ordered = sorted(nums)
+    n = len(ordered)
+    if n == 0:
+        raise ValueError("empty list")
+    return float(ordered[n // 2])
+`,
+  },
+  {
+    key: "patched-repr",
+    label: "Rewrites repr so its output looks correct",
+    demonstrates:
+      "The repr shown as 'got' is produced in the sandbox and is display only. Patching it corrupts this submission's own feedback and moves no marks — the deliberate edge of the value/display split.",
+    expected: { earned: 8, status: "graded" },
+    code: `import builtins
+
+builtins.repr = lambda obj: "2.5"
+
+
+def median(nums: list[float]) -> float:
+    ordered = sorted(nums)
+    n = len(ordered)
+    if n == 0:
+        raise ValueError("empty list")
+    return float(ordered[n // 2])
+`,
+  },
+  {
+    key: "trace-hook",
+    label: "Installs a tracing hook",
+    demonstrates:
+      "sys.settrace observes every call made after import, including the grader's. Observation is not authority: the verdict is formed outside this interpreter.",
+    expected: { earned: 8, status: "graded" },
+    code: `import sys
+
+
+def _watch(frame, event, arg):
+    # Deliberately returns None: trace calls, never lines. A line-level hook
+    # would be slow enough to hit the execution budget, which would make this
+    # a timeout test rather than a tampering test.
+    return None
+
+
+sys.settrace(_watch)
 
 
 def median(nums: list[float]) -> float:

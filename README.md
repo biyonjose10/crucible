@@ -59,10 +59,11 @@ flowchart TD
   subgraph GRADE["GRADING PATH — no model, ever"]
     direction TB
     W["Web Worker<br/>Pyodide · real CPython 3.14 on WebAssembly"]
-    RES["Test results<br/>pass / fail / inconclusive + raw traceback"]
+    OBS["Observations<br/>returned value / raised exception<br/>(no verdict yet)"]
+    RES["lib/runner.ts<br/>compares in TypeScript, outside the interpreter"]
     SCO["lib/scoring.ts<br/>pure function · zero AI imports"]
     GRADE_OUT(["SCORE — e.g. 8 / 10"])
-    W --> RES --> SCO --> GRADE_OUT
+    W --> OBS --> RES --> SCO --> GRADE_OUT
   end
 
   subgraph EXPLAIN["EXPLANATION PATH — model lives here"]
@@ -96,7 +97,13 @@ Read the diagram for what is *missing*: there is no arrow from `/api/diagnose` b
 
 Execution is **Pyodide** — real CPython 3.14 compiled to WebAssembly — running in a Web Worker, self-hosted from `/public/pyodide`. There is no third-party execution API, no API key, and no rate limit, so the demo cannot be broken by someone else's outage.
 
-The harness (`lib/harness.ts`) emits one JSON line per test result and flushes immediately, so results produced before a kill survive the kill. The parser (`lib/runner.ts`) accepts a line only if it carries the run's marker *and* names a test id the suite actually declared, so a student printing to stdout cannot forge a passing result. Student output is redirected into a sink on import and around every call, so it never reaches the channel the harness reports on; and the marker is a fresh UUID per run, so a submission cannot print one even if it did. That is archetype 8, and it was a real hole before it was a fixture: the marker used to be a constant. The module cache is cleared between submissions, because a stale `solution` module would silently grade the previous student's code.
+**Nothing inside the interpreter decides anything.** `lib/harness.ts` produces only three kinds of Python — a setup program, an import program, and one expression per test — and every one of them merely *evaluates*. Each test expression is run by the worker, and its **value crosses out of Python into JavaScript**; `lib/runner.ts` then compares that value to the expected one and decides pass or fail. The worker never learns what a rubric is, and a result is never a line of text.
+
+That design is the second attempt, and the first one's failure is instructive. The harness used to compare values in Python and print result lines onto a stdout channel tagged with an unguessable per-run marker. Both defences were real. Both were beside the point: Pyodide executes in `__main__`, and a submission is imported *before* the tests run, so the student's own module could read `sys.modules["__main__"].__dict__` and help itself — replace the comparator with one that always agrees, read the marker and write to the saved stdout handle, or call the emitter directly. Each scored **10/10 for code worth 8/10**. They are archetypes 9, 10 and 11, and they are in the gate precisely because they once worked.
+
+The lesson was not that the secret needed to be better hidden. A secret is no defence when it is a global in a namespace the attacker can read, and `sys._getframe` would have reached a merely private one (archetype 12). The fix was to leave nothing in the interpreter worth stealing.
+
+One deliberate seam remains: the `got` string shown beside a failure is Python's `repr`, produced in the sandbox. It is display only and never compared, so a submission that patches `repr` corrupts its own feedback and moves no marks — archetype 13. The module cache is cleared between submissions, because a stale `solution` module would silently grade the previous student's code.
 
 ---
 
@@ -112,9 +119,11 @@ The harness (`lib/harness.ts`) emits one JSON line per test result and flushes i
 | 4 | Raises `ValueError` on empty input |
 | 5 | Always returns a float |
 
-## The nine archetypes
+## The fifteen archetypes
 
 Every demo submission is hand-authored to exercise one property of the grader. Expected scores live in `fixtures/archetypes.ts` and are asserted by the verification script, so a change to the rubric or the harness that moves any of these numbers fails the build.
+
+Seven of them attack the grader rather than the problem. Three of those are not hypothetical: on 2026-09-01 they each scored **10/10 for code worth 8/10**, and fixing that is why the pass/fail decision no longer happens inside the interpreter the student's code runs in.
 
 | # | Archetype | Score | What it proves |
 |---|---|---|---|
@@ -125,8 +134,14 @@ Every demo submission is hand-authored to exercise one property of the grader. E
 | 5 | Syntax error | **0/10** | Diagnosis still works when the code never runs at all. |
 | 6 | Prompt injection | **4/10** | Tells the grader to award 10/10. Scored by its tests regardless. |
 | 7 | Hardcoded sample answers | **4/10** | Passes all 5 visible tests. Fails 5 of the 7 hidden ones. |
-| 8 | Forged result markers | **8/10** | Prints the harness's own result protocol at import time, claiming its failing tests as passes. It scores what it earned: the marker is a fresh UUID per run, so there is no marker for it to print. |
-| 9 | Crashes on empty input | **8/10** | The empty-list contract is its own clause, worth its own points. |
+| 8 | Forged result markers | **8/10** | Prints the harness's own result protocol at import time, claiming its failing tests as passes. Results no longer travel as text, so there is no channel to print onto. |
+| 9 | Rewrites the harness comparator | **8/10** | Replaces the equality check with one that always agrees. **Scored 10/10 until 2026-09-01.** The comparison is now a TypeScript function; this writes a Python global nothing reads. |
+| 10 | Reads the run's marker | **8/10** | The per-run marker was unguessable, but it was a global the submission could simply read. **Scored 10/10 until 2026-09-01.** There is no marker now. |
+| 11 | Calls the harness's emitter | **8/10** | No marker is needed if the emitter can be called directly. **Scored 10/10 until 2026-09-01.** There is no emitter now. |
+| 12 | Searches the call stack | **8/10** | `sys._getframe` would reach a merely *hidden* namespace, which is why the fix was to move the decision out of Python rather than hide it better. The walk finds nothing. |
+| 13 | Rewrites `repr` | **8/10** | The `got` string is produced in the sandbox and is display only. Patching it corrupts this submission's own feedback and moves no marks. |
+| 14 | Installs a tracing hook | **8/10** | `sys.settrace` observes every call the grader makes after import. Observation is not authority. |
+| 15 | Crashes on empty input | **8/10** | The empty-list contract is its own clause, worth its own points. |
 
 ---
 
@@ -180,7 +195,7 @@ npx tsx scripts/verify.ts
 Roughly 30 seconds. It runs three checks, and the whole product is false if any of them fail:
 
 1. **Import hygiene.** It reads `lib/scoring.ts`, extracts every `from "…"` specifier, and fails the build if any of them match `anthropic`, `google`, `gemini`, `genai`, `openai`, `diagnose`, or `ai`. The import list is printed so you can read it yourself.
-2. **Archetype scores.** All nine archetypes execute in isolated processes and must produce exactly the scores in the table above. The hardcoding archetype additionally prints its visible-versus-hidden breakdown, so you can see the split rather than take it on faith. The assertion is deliberately narrow: every visible test must pass and at least five of the seven hidden tests must fail. Two hidden tests legitimately pass for that submission — `median(list())` still raises `ValueError`, and `0.0` is still a float — and pretending otherwise would be a nicer story than the truth.
+2. **Archetype scores.** All fifteen archetypes execute in isolated processes and must produce exactly the scores in the table above. The hardcoding archetype additionally prints its visible-versus-hidden breakdown, so you can see the split rather than take it on faith. The assertion is deliberately narrow: every visible test must pass and at least five of the seven hidden tests must fail. Two hidden tests legitimately pass for that submission — `median(list())` still raises `ValueError`, and `0.0` is still a float — and pretending otherwise would be a nicer story than the truth.
 3. **Determinism.** Three submissions are re-executed from scratch and their clause-by-clause reports must be byte-identical to the first run.
 
 Each archetype runs in its own process with a 5-second execution budget measured *after* the interpreter is warm, and the parent kills the child on expiry. That is the same mechanism as the browser's `Worker.terminate()`, for the same reason: an infinite loop cannot be stopped from inside its own interpreter.
@@ -217,7 +232,7 @@ lib/
   authoring.ts    pure validation — refuses a suite that can't produce a real mark
   code-editing.ts pure Tab/Enter/dedent logic for the visitor's Python textarea
 fixtures/
-  archetypes.ts   the nine demo submissions and their asserted scores
+  archetypes.ts   the fifteen demo submissions and their asserted scores
 scripts/
   verify.ts       the build gate described above
   run-one.ts      executes one archetype in an isolated process
