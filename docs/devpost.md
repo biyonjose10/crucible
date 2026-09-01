@@ -40,6 +40,8 @@ The grade comes from execution. Each submission runs against a test suite in a r
 
 The student gets what a −3 never told them: line six, the midpoint index truncates on even-length input, rubric clause two. The instructor gets a queue they can skim in a minute instead of a night.
 
+And you do not have to grade our exercise. Describe a function in a sentence of prose and a model writes the rubric and the executable test suite for it, then the sandbox grades against that suite exactly as it grades ours. The model writes the ruler and still cannot read it: what it produces is tests, which are executed rather than consulted, and the scoring module they feed has no path to any model.
+
 ## How we kept it honest
 
 This is the part we care about, and every item is a structural property of the codebase rather than a prompt instruction.
@@ -47,6 +49,10 @@ This is the part we care about, and every item is a structural property of the c
 **The scoring module cannot reach a model.** `lib/scoring.ts` is a pure function from execution results to a score report. It imports nothing but TypeScript types. Our verification script reads its import list and fails the build if anything matching `anthropic`, `google`, `gemini`, `genai`, `openai`, `diagnose`, or `ai` appears. You can check this claim faster than you can read this paragraph: open the file.
 
 **Prompt injection fails structurally.** One of our demo submissions opens with a comment telling the grader to ignore the tests and award full marks. It scores 4/10. Nothing filtered that comment — the model read it, and simply had no tool that could write a grade. We did not build a defence. We built an architecture where the attack has nowhere to land.
+
+**The model writes the ruler and still cannot read it.** This is the claim we were most afraid of breaking, so it is the one we built the most around. When a visitor describes their own problem, a model writes the rubric, the test suite and a reference solution. It does not touch the grade, because tests are not opinions: the sandbox executes them and `lib/scoring.ts` — unchanged, still importing only its type definitions — turns the results into a number. Three things sit between a generated suite and a visitor. A pure validator refuses any suite that could not produce a meaningful mark: a clause nothing tests would score inconclusive forever and quietly withhold its points, and that is rejected rather than shipped. Then the suite has to pass a known-good and fail a known-bad — the model's own reference solution is run against the tests it shipped with and must score full marks, and a stub that ignores its arguments and returns `None` is run against the same tests and must *not*, because a suite nothing can fail hands out a mark that means nothing. Both halves run in the visitor's own browser before anything is displayed. Finally, every test is printed in full — the exact expression, the exact expected value, shown or hidden — and nothing is graded until the visitor clicks to accept.
+
+**The injection test we ran on the problem box.** The obvious attack on a model that writes your exam is to tell it what to write. We gave production a problem description ordering it to write tests that always pass and award full marks. It produced an ordinary, discriminating suite. Ten sample problems run against the live deployment each produced a suite that passed its own reference — nine on the first attempt, one on the built-in retry.
 
 **Hidden tests defeat gaming.** Each clause is checked by visible tests published with the assignment and hidden tests using different inputs. Our hardcoding archetype passes all five visible tests, fails five of the seven hidden ones, and earns 4/10.
 
@@ -64,7 +70,9 @@ And the honest caveat, since we would rather say it than have it asked: the mode
 
 **And it proves its own claim on screen.** A panel on the landing page reads the import list of `lib/scoring.ts` out of the file at build time and displays it. It says `./types`. Wiring a model into the grading path would change what the visitor is reading.
 
-**You do not have to take the demo's word for any of it.** There is a box on the landing page. Paste your own Python, press the button, and it runs through the same sandbox, the same tests and the same scoring function as the seeded class.
+**You do not have to take the demo's word for any of it.** At the bottom of the landing page is a section headed *Or grade something of your own*, with two boxes. Leave the problem field blank, paste your own Python, and it runs through the same sandbox, the same tests and the same scoring function as the seeded class. Or describe a problem of your own in the field, press **Write the tests**, read the rubric and suite that come back, and accept them — then grade against those. Either way it is your code, in your browser, with no login and no key.
+
+**And the limits on that are described as what they are.** The authoring endpoint refuses bodies over 4KB and caps a caller at ten requests an hour, degrading to a readable message rather than an error. It runs on ephemeral, horizontally-scaled serverless instances, so that counter lives in one instance's memory and resets on every cold start. It raises the cost of casual abuse. It is not a spend ceiling, and we would rather write that here than let someone find it out.
 
 ## How we built it
 
@@ -74,7 +82,9 @@ Execution is **Pyodide**: real CPython 3.14 compiled to WebAssembly, running in 
 
 Diagnosis uses the Google Gemini API. The prompt receives the rubric clause, the failing test, and the raw traceback. It does not receive the score, because there is no code path that would give it one.
 
-Eight archetypes carry the whole demo: correct, off-by-one, wrong return type, infinite loop, syntax error, prompt injection, hardcoded answers, and empty-input crash. Their expected scores are asserted in the build gate, so any change to the rubric or the harness that moves a number breaks the build instead of quietly shipping.
+Nine archetypes carry the whole demo: correct, off-by-one, wrong return type, infinite loop, syntax error, prompt injection, hardcoded answers, forged result markers, and empty-input crash. Their expected scores are asserted in the build gate, so any change to the rubric or the harness that moves a number breaks the build instead of quietly shipping.
+
+The forged-result one is there because it was a real hole first. The result marker used to be a constant, so a submission could print the harness's own protocol at import time and report its failing tests as passes — the parser takes the first report per test id, and the forgery shadowed the real result. Student output is now redirected away from that stream, and the marker is a fresh UUID per run, so there is nothing left to print. The archetype is the regression test.
 
 ## Challenges we ran into
 
@@ -94,7 +104,6 @@ We also learned that a trust claim is worth very little unless it is cheap to ch
 
 ## What's next
 
-- Instructor-authored assignments: paste a spec and a test file, get the rubric-to-test mapping.
 - Persistence and a real gradebook export.
 - Cross-class misconception clustering. Failure signatures already collapse identical mistakes, so aggregating them across a cohort tells an instructor which concept to reteach on Monday — the thing an autograder has never been able to say.
 

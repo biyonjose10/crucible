@@ -73,6 +73,30 @@ export function isCustomSlug(slug: string): boolean {
 }
 
 /**
+ * A submission that defines the right function and does nothing useful.
+ *
+ * The negative half of the self-check. Running the model's reference solution
+ * proves a suite is not *broken*; it does not prove the suite can *fail*
+ * anyone, and a suite that passes everything is worse than no suite — it hands
+ * out a mark that means nothing, which is the single thing this project exists
+ * to rule out. So the stub is run too, and the suite is kept only if the stub
+ * scores less than full marks.
+ *
+ * Returns null when the function's name cannot be read out of the signature,
+ * in which case the caller should skip the check rather than reject the suite:
+ * an unparseable signature is a separate problem and `validateGenerated`
+ * already refuses anything that does not begin with `def`.
+ */
+export function stubFor(signature: string): string | null {
+  const name = /^def\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(signature)?.[1];
+  if (!name) return null;
+
+  // `*args, **kwargs` so the stub is callable at whatever arity the tests use;
+  // returning None so it fails on value and on type.
+  return `def ${name}(*args, **kwargs):\n    return None\n`;
+}
+
+/**
  * A slug derived from the assignment's own content.
  *
  * Content-addressed rather than random because `lib/diagnose.ts` keys its
@@ -83,8 +107,16 @@ export function isCustomSlug(slug: string): boolean {
 export function slugFor(assignment: Omit<Assignment, "slug">): string {
   // FNV-1a. Not a security primitive — nothing here is a secret, and the only
   // requirement is that different content lands on different keys.
+  //
+  // `prompt` is included because it is not decoration: lib/diagnose.ts renders
+  // it into the model's system prompt as the specification. Leaving it out let
+  // a rewritten problem statement ride in under an unchanged slug, and let two
+  // assignments differing only in prose share an explanation cache entry.
+  // `title` and `starterCode` are excluded — neither reaches the model nor
+  // affects a mark.
   const json = JSON.stringify([
     assignment.signature,
+    assignment.prompt,
     assignment.clauses,
     assignment.tests,
   ]);

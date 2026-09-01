@@ -9,13 +9,15 @@
  *   npm run check-suite -- "return the two largest numbers, largest first"
  *   npm run check-suite            # runs the built-in sample problems
  *
- * The bar is the same one the UI enforces: the model's own reference solution
- * must score full marks against the suite it shipped with. Anything less means
- * the tests are wrong, and grading a visitor against them would be meaningless.
+ * The bar is the same one the UI enforces, and it has two sides: the model's
+ * own reference solution must score full marks against the suite it shipped
+ * with, and a do-nothing stub must not. A suite its author cannot pass is
+ * broken; a suite nothing can fail is vacuous. Either way the mark would be
+ * meaningless, which is the one thing this project exists to rule out.
  */
 import { loadPyodide, type PyodideInterface } from "pyodide";
 
-import { validateTransported } from "../lib/authoring";
+import { stubFor, validateTransported } from "../lib/authoring";
 import { parseOutcome, runSubmission } from "../lib/runner";
 import { score } from "../lib/scoring";
 import type { Assignment } from "../lib/types";
@@ -103,7 +105,34 @@ async function checkOne(py: PyodideInterface, problem: string): Promise<boolean>
       `${report.earned}/${report.total} (${report.status})`;
 
     if (clean) {
-      process.stdout.write(`\x1b[32m${summary}\x1b[0m\n`);
+      // The negative half of the check the UI runs: a suite nothing can fail
+      // is worse than no suite, because the mark it produces means nothing.
+      const stub = stubFor(assignment.signature);
+      const stubReport = stub
+        ? score(assignment, runAgainst(py, assignment, stub))
+        : null;
+
+      if (
+        stubReport &&
+        stubReport.status === "graded" &&
+        stubReport.earned === stubReport.total
+      ) {
+        process.stdout.write(
+          `\x1b[31m${summary}\x1b[0m\n` +
+            "      but a do-nothing stub also scored full marks — " +
+            "these tests do not discriminate\n",
+        );
+        hint =
+          "A stub that ignores its arguments and returns None scored full " +
+          "marks against your tests. Write tests a wrong implementation fails.";
+        continue;
+      }
+
+      process.stdout.write(
+        `\x1b[32m${summary}, stub scores ` +
+          `${stubReport ? `${stubReport.earned}/${stubReport.total}` : "n/a"}` +
+          `\x1b[0m\n`,
+      );
       return true;
     }
 

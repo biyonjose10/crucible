@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Diagnosis } from "./diagnose";
 import { toPlainProse } from "./prose-guard";
 import type { ScoreReport } from "./scoring";
+import { isCustomSlug } from "./authoring";
 import type { Assignment } from "./types";
 
 /**
@@ -109,7 +110,7 @@ export function useDiagnosis(
             // cannot look up in its own registry. Known slugs resolve
             // server-side and any inline assignment is ignored, so the median
             // path is unchanged.
-            assignment: assignment.slug.startsWith("custom-")
+            assignment: isCustomSlug(assignment.slug)
               ? assignment
               : undefined,
             code,
@@ -202,7 +203,13 @@ export function useDiagnosis(
     return () => {
       live = false;
     };
-  }, [active, submissionId, assignment, code, report]);
+    // Depends on the slug rather than the assignment object. Generated slugs
+    // are content-addressed, so slug identity *is* content identity — and an
+    // object dep would re-fire this effect on every render for any caller that
+    // passed a literal, turning it into an unbounded POST loop against an
+    // endpoint that deliberately has no rate limit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, submissionId, assignment.slug, code, report]);
 
   // Cleaned here rather than at either render site, so every consumer gets
   // prose and a future one cannot forget to. Re-derived each render, which is

@@ -64,9 +64,19 @@ function overLimit(ip: string): boolean {
   return recent.length > MAX_PER_WINDOW;
 }
 
-function clientIp(request: Request): string {
+/**
+ * The caller's address, or null when we cannot tell them apart.
+ *
+ * Returning null rather than a shared "unknown" bucket is deliberate. Vercel
+ * always sets `x-forwarded-for`; a request without one is local development,
+ * where every caller would otherwise land in the same bucket — and
+ * `npm run check-suite` plus a few clicks would exhaust the hour's allowance
+ * with no way to reset it but restarting the server. Losing the limiter on
+ * localhost costs nothing; hitting it mid-recording costs the demo.
+ */
+function clientIp(request: Request): string | null {
   const forwarded = request.headers.get("x-forwarded-for");
-  return forwarded?.split(",")[0]?.trim() || "unknown";
+  return forwarded?.split(",")[0]?.trim() || null;
 }
 
 function badRequest(message: string): Response {
@@ -113,7 +123,8 @@ export async function POST(request: Request): Promise<Response> {
     return badRequest("Field `retryHint` must be a string when present.");
   }
 
-  if (overLimit(clientIp(request))) {
+  const ip = clientIp(request);
+  if (ip !== null && overLimit(ip)) {
     return refuse(
       "This machine has asked for a lot of test suites in the last hour, and " +
         "each one costs real money on a shared key. Try again later — the " +

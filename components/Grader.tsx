@@ -12,6 +12,7 @@ import { StudentView } from "./StudentView";
 import { TryYourOwn } from "./TryYourOwn";
 import { ClassInsights } from "./ClassInsights";
 import { toCsv } from "@/lib/gradebook";
+import { stubFor } from "@/lib/authoring";
 import type { Assignment } from "@/lib/types";
 
 /** The shape /api/author returns. Failures arrive as values, never as a throw. */
@@ -49,6 +50,8 @@ export function Grader({
   scoringImports?: string[];
 }) {
   const poolRef = useRef<GraderPool | null>(null);
+  /** Identifies the current class run, so an abandoned one stops writing. */
+  const runRef = useRef(0);
   const [booted, setBooted] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [boot, setBoot] = useState({ ready: 0, total: 2 });
@@ -115,6 +118,14 @@ export function Grader({
     const pool = poolRef.current;
     if (!pool || phase === "grading") return;
 
+    // Claim this run. A run that is no longer the current one must not write:
+    // there is no way to cancel work already handed to the pool, so instead
+    // every write checks that it still belongs to the run in progress. Without
+    // this, leaving the queue mid-run left thirty in-flight submissions still
+    // patching rows and a `setPhase("complete")` that dragged the page back.
+    const run = ++runRef.current;
+    const current = () => runRef.current === run;
+
     const t0 = Date.now();
     setPhase("grading");
     setStartedAt(t0);
@@ -122,10 +133,12 @@ export function Grader({
     setExpanded(null);
     setRows(CLASS.map((submission) => ({ submission, state: "queued" as const })));
 
-    const patch = (id: string, next: Partial<Row>) =>
+    const patch = (id: string, next: Partial<Row>) => {
+      if (!current()) return;
       setRows((prev) =>
         prev.map((r) => (r.submission.id === id ? { ...r, ...next } : r)),
       );
+    };
 
     await Promise.all(
       CLASS.map(async (submission) => {
@@ -144,6 +157,7 @@ export function Grader({
       }),
     );
 
+    if (!current()) return;
     setElapsed(Date.now() - t0);
     setPhase("complete");
   }, [phase]);
@@ -178,13 +192,20 @@ export function Grader({
    * Have a model write an assignment for `problem`, and refuse to use it unless
    * it survives being executed.
    *
-   * The check is the whole point. `/api/author` returns a suite together with a
-   * reference solution the model wrote alongside it, and that solution is run
-   * here — in the visitor's own already-warm interpreter, at no cost and with
-   * no server-side Python — against the very tests it shipped with. A suite its
-   * own author cannot score full marks on is wrong, and grading a visitor
-   * against wrong tests would produce exactly the meaningless mark this project
-   * exists to rule out. So it is discarded rather than shown.
+   * The check is the whole point, and it has two halves — pass a known-good,
+   * fail a known-bad. Both run in the visitor's own already-warm interpreter,
+   * at no cost and with no server-side Python.
+   *
+   *   • `/api/author` returns the suite together with a reference solution the
+   *     model wrote alongside it. That solution is run against the very tests
+   *     it shipped with and must score full marks; a suite its own author
+   *     cannot pass is simply wrong.
+   *   • A stub that ignores its arguments and returns None is run too, and must
+   *     NOT score full marks. Without this, a suite that passes everything
+   *     would sail through — and a mark nothing can fail is exactly the
+   *     meaningless mark this project exists to rule out.
+   *
+   * A suite failing either half is discarded rather than shown.
    *
    * One retry, carrying the reason back: a blind second attempt mostly
    * reproduces the first mistake, while naming the failing test usually fixes
@@ -236,22 +257,52 @@ export function Grader({
         );
         const report = score(body.assignment, outcome);
 
-        if (report.status === "graded" && report.earned === report.total) {
-          return body.assignment;
+        if (report.status !== "graded" || report.earned !== report.total) {
+          // Bounded: this is echoed back into the next request, which the
+          // server rejects outright over 4KB. An unbounded traceback in here
+          // once turned a retry into a raw 400 in front of the visitor.
+          hint = (
+            "Your reference solution scored " +
+            `${report.earned}/${report.total} against your own tests. ` +
+            report.clauses
+              .flatMap((c) => c.results)
+              .filter((r) => r.status !== "pass")
+              .slice(0, 4)
+              .map((r) => {
+                const test = body.assignment!.tests.find((t) => t.id === r.id);
+                return `${test?.expr ?? r.id} gave ${r.got ?? "no result"}, expected ${r.expected}`;
+              })
+              .join("; ")
+          ).slice(0, 400);
+          continue;
         }
 
-        hint =
-          "Your reference solution scored " +
-          `${report.earned}/${report.total} against your own tests. ` +
-          report.clauses
-            .flatMap((c) => c.results)
-            .filter((r) => r.status !== "pass")
-            .slice(0, 4)
-            .map((r) => {
-              const test = body.assignment!.tests.find((t) => t.id === r.id);
-              return `${test?.expr ?? r.id} gave ${r.got ?? "no result"}, expected ${r.expected}`;
-            })
-            .join("; ");
+        // The negative half. A suite nothing can fail is worse than no suite:
+        // it hands out a mark that means nothing. So a stub that defines the
+        // right function and returns None must NOT score full marks.
+        const stub = stubFor(body.assignment.signature);
+        if (stub) {
+          const stubOutcome = await pool.run(
+            `stub-${Date.now()}`,
+            stub,
+            body.assignment.tests,
+          );
+          const stubReport = score(body.assignment, stubOutcome);
+
+          if (
+            stubReport.status === "graded" &&
+            stubReport.earned === stubReport.total
+          ) {
+            hint =
+              "A stub that ignores its arguments and returns None scored full " +
+              "marks against your tests, so they do not distinguish a correct " +
+              "answer from a do-nothing one. Write tests that a wrong " +
+              "implementation actually fails.";
+            continue;
+          }
+        }
+
+        return body.assignment;
       }
 
       return {
@@ -282,6 +333,9 @@ export function Grader({
    * make the button feel broken.
    */
   const goHome = useCallback(() => {
+    // Abandon whatever run was in progress. The pool cannot be told to stop,
+    // but bumping the token means nothing it produces will be displayed.
+    runRef.current++;
     setPhase("idle");
     setRows(CLASS.map((submission) => ({ submission, state: "queued" as const })));
     setStartedAt(null);
@@ -388,7 +442,7 @@ export function Grader({
         bootError={bootError}
         elapsed={elapsed}
         stats={stats}
-        onHome={phase === "idle" ? undefined : goHome}
+        onHome={phase === "complete" ? goHome : undefined}
       />
 
       <main className="flex-1 w-full max-w-5xl mx-auto px-5 pb-24">

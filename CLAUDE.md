@@ -110,12 +110,19 @@ Three things hold that up. Do not remove any of them:
    its marks), a test naming a clause that does not exist, an expected value
    that will not decode, a suite with no hidden tests. It imports only
    `./types`, so it is testable without a key (`test/authoring.test.ts`).
-2. **The self-check.** The model writes a reference solution alongside the
-   tests; the browser runs it against them in the already-warm pool before
-   anyone sees them, and discards the suite unless it scores full marks. One
-   retry, carrying the failing test back — a blind retry mostly repeats the
-   mistake. `npm run check-suite` drives the same loop from Node against a
-   running dev server; 5/5 sample problems passed first try on 2026-08-31.
+2. **The self-check, which has two sides.** The model writes a reference
+   solution alongside the tests; the browser runs it against them in the
+   already-warm pool and discards the suite unless it scores **full marks**. A
+   stub that ignores its arguments and returns `None` is then run too, and must
+   score **less than full marks** — pass a known-good, fail a known-bad. A suite
+   its own author cannot pass is broken; a suite nothing can fail is vacuous,
+   and hands out a mark that means nothing. One retry, carrying the failure back
+   — a blind retry mostly repeats the mistake. `npm run check-suite` drives the
+   same loop from Node against a running dev server; 10/10 sample problems
+   produced a passing suite on 2026-08-31, 9 of them first try.
+   **Deliberate trade:** a degenerate problem whose correct answer really is
+   `None` is now rejected. That is right — a problem the trivial stub answers
+   perfectly is not gradeable.
 3. **Mandatory approval.** `components/GeneratedSuite.tsx` shows every test —
    expression and expected value — and nothing is graded until the visitor
    accepts. Read-only on purpose: an edited suite invalidates the self-check
@@ -125,7 +132,13 @@ Two implementation details that will bite if forgotten:
 
 - **Generated slugs are content-addressed** (`custom-<FNV hash>`). `diagnose.ts`
   keys its explanation cache on `slug#failureSignature`, so a constant slug
-  would let two unrelated problems serve each other's explanation.
+  would let two unrelated problems serve each other's explanation. The hash
+  covers `signature`, `prompt`, `clauses` and `tests` — everything that reaches
+  the model or affects a mark — and deliberately not `title` or `starterCode`,
+  which do neither. `prompt` was missing at first, which let a rewritten problem
+  statement ride in under an unchanged slug; `validateTransported` re-derives
+  the slug and refuses a mismatch, so state that guarantee as covering the
+  specification, rubric and tests rather than the whole object.
 - **`expected` travels as `expectedJson`**, a JSON-encoded string, because JSON
   Schema cannot express "any JSON value" in one field. Also tell the model that
   a Python tuple is not JSON — it must test `list(f(x))`. It gets this right.
@@ -155,6 +168,18 @@ per-IP limit of 10/hour that degrades to `{ ok: false, reason }`. **Describe
 that honestly.** Vercel runs it on ephemeral, horizontally-scaled lambdas, so
 the counter is per-instance and resets on every cold start. It raises the cost
 of casual abuse; it is not a spend ceiling.
+
+The limit applies only when `x-forwarded-for` is present. Vercel always sets
+it; a request without one is local development, where every caller would
+otherwise share a single bucket — `npm run check-suite` plus a few clicks would
+exhaust the hour with no reset but a server restart, which is exactly the wrong
+thing to discover while recording a demo.
+
+**`/api/diagnose` grew a bigger mouth on 2026-08-31** and the section above
+predates it: it now accepts up to 16KB of transported assignment
+(`AUTHOR_LIMITS.maxAssignmentBytes`), which is rendered into the model's prompt,
+on the endpoint that still has no per-visitor limit at all. The size caps in
+`lib/authoring.ts` are the only ceiling on that path.
 
 ## Commands
 

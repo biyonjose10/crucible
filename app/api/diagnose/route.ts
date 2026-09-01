@@ -158,8 +158,9 @@ export async function POST(request: Request): Promise<Response> {
    * moments ago — so it travels with the request and is validated here as
    * input. That is a real change in what the server trusts, and it is bounded
    * deliberately: `validateTransported` re-derives the content-addressed slug
-   * and refuses a rubric that no longer matches the one it arrived under, size
-   * caps keep an oversized rubric from becoming an oversized bill, and the
+   * and refuses an assignment whose specification, rubric or tests no longer
+   * match the ones it arrived under, size caps keep an oversized rubric from
+   * becoming an oversized bill, and the
    * model is still shown only failing-test evidence and still has no field in
    * which to express a score. The mark itself never comes from here — it is
    * computed in the browser's sandbox by lib/scoring.ts before this route is

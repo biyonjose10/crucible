@@ -101,17 +101,21 @@ export function TryYourOwn({
     el.focus();
     el.setSelectionRange(edit.start, edit.end);
 
-    let inserted = false;
+    const expected = el.value.slice(0, edit.start) + edit.text + el.value.slice(edit.end);
+
     try {
-      inserted = document.execCommand("insertText", false, edit.text);
+      document.execCommand("insertText", false, edit.text);
     } catch {
-      inserted = false;
+      // Ignored: the check below decides whether it worked.
     }
 
-    if (!inserted) {
-      const next = el.value.slice(0, edit.start) + edit.text + el.value.slice(edit.end);
-      setCode(next);
-      el.value = next;
+    // `execCommand` reports whether the command is *supported*, not whether the
+    // DOM changed, so its return value proves nothing. Gecko in particular
+    // early-outs on an empty insertion string while still reporting success —
+    // and the outdent is the one edit that inserts "". Compare the text.
+    if (el.value !== expected) {
+      setCode(expected);
+      el.value = expected;
     }
 
     el.setSelectionRange(edit.caret, edit.caretEnd ?? edit.caret);
@@ -143,10 +147,24 @@ export function TryYourOwn({
       return;
     }
 
+    // A bare modifier is not typing — and Shift fires its own keydown, so
+    // disarming here would break Esc then Shift+Tab, which is how a keyboard
+    // user walks backwards out of the box.
+    if (e.key === "Shift" || e.key === "Control" || e.key === "Alt" || e.key === "Meta") {
+      return;
+    }
+
     // Any other key means the visitor is still writing, not leaving.
     tabExits.current = false;
 
-    if (e.key === "Enter" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    if (
+      e.key === "Enter" &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      // Enter confirming an IME candidate is not a newline.
+      !e.nativeEvent.isComposing
+    ) {
       e.preventDefault();
       applyToCode(editForEnter(value, from, to));
       return;
@@ -163,7 +181,8 @@ export function TryYourOwn({
 
   /** Grade against whichever assignment is in play. */
   const grade = async (against: Assignment) => {
-    if (!code.trim()) return;
+    if (busy || disabled || !code.trim()) return;
+    setError(null);
     setStep("grading");
     try {
       await onGrade(code, against);
@@ -229,6 +248,7 @@ export function TryYourOwn({
           // written for a question they have since changed.
           if (generated) discard();
         }}
+        maxLength={2000}
         placeholder="Describe a function to implement — for example: return the two largest numbers in a list, largest first, and raise ValueError if there are fewer than two."
         rows={2}
         disabled={busy}
@@ -263,6 +283,7 @@ export function TryYourOwn({
         value={code}
         onChange={(e) => setCode(e.target.value)}
         onKeyDown={onCodeKeyDown}
+        disabled={step === "grading"}
         spellCheck={false}
         rows={8}
         className="mt-2 w-full resize-y rounded-lg border border-line bg-surface p-4
@@ -283,9 +304,13 @@ export function TryYourOwn({
         />
       ) : (
         <div className="mt-4 flex flex-wrap items-center gap-4">
+          {/* Authoring reads only the problem; grading reads only the code.
+              Gating both on the code box left a visitor who cleared the seed to
+              write from scratch staring at a dead button — while Ctrl+Enter,
+              which bypasses this, still worked. */}
           <button
             onClick={primary}
-            disabled={disabled || busy || !code.trim()}
+            disabled={disabled || busy || !(custom ? problem.trim() : code.trim())}
             className="rounded-lg bg-ink px-4 py-2.5 font-medium text-bg transition-all duration-200
                        hover:-translate-y-px hover:shadow-[0_8px_24px_-8px_rgba(255,255,255,0.35)]
                        disabled:cursor-not-allowed disabled:opacity-40

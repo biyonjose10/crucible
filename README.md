@@ -46,6 +46,8 @@ This is the part that matters. Every item below is a structural property of the 
 
 **Passing tests cost nothing.** The model is only ever invoked on a failure. A correct submission never reaches it, and identical failure signatures are hashed (`failureSignature()` in `lib/scoring.ts`), diagnosed once, and reused. Cost grows with the number of distinct misconceptions in a class, not the number of students.
 
+**A model may write the ruler. It still cannot read it.** Describe a problem in prose and a model writes the rubric and the executable test suite for it. That is the one place in Crucible where a model produces something the grade depends on, and it changes nothing about the grade itself: what it produces is tests, the sandbox runs them, and `lib/scoring.ts` — unchanged, still importing only `lib/types.ts` — turns the results into a number. The model writes the exam and never sees a mark. [How that is held up](#bring-your-own-problem).
+
 ---
 
 ## Architecture
@@ -94,7 +96,7 @@ Read the diagram for what is *missing*: there is no arrow from `/api/diagnose` b
 
 Execution is **Pyodide** — real CPython 3.14 compiled to WebAssembly — running in a Web Worker, self-hosted from `/public/pyodide`. There is no third-party execution API, no API key, and no rate limit, so the demo cannot be broken by someone else's outage.
 
-The harness (`lib/harness.ts`) emits one JSON line per test result and flushes immediately, so results produced before a kill survive the kill. The parser (`lib/runner.ts`) accepts a line only if it carries the internal marker *and* names a test id the suite actually declared, so a student printing to stdout cannot forge a passing result. The module cache is cleared between submissions, because a stale `solution` module would silently grade the previous student's code.
+The harness (`lib/harness.ts`) emits one JSON line per test result and flushes immediately, so results produced before a kill survive the kill. The parser (`lib/runner.ts`) accepts a line only if it carries the run's marker *and* names a test id the suite actually declared, so a student printing to stdout cannot forge a passing result. Student output is redirected into a sink on import and around every call, so it never reaches the channel the harness reports on; and the marker is a fresh UUID per run, so a submission cannot print one even if it did. That is archetype 8, and it was a real hole before it was a fixture: the marker used to be a constant. The module cache is cleared between submissions, because a stale `solution` module would silently grade the previous student's code.
 
 ---
 
@@ -110,7 +112,7 @@ The harness (`lib/harness.ts`) emits one JSON line per test result and flushes i
 | 4 | Raises `ValueError` on empty input |
 | 5 | Always returns a float |
 
-## The eight archetypes
+## The nine archetypes
 
 Every demo submission is hand-authored to exercise one property of the grader. Expected scores live in `fixtures/archetypes.ts` and are asserted by the verification script, so a change to the rubric or the harness that moves any of these numbers fails the build.
 
@@ -123,14 +125,33 @@ Every demo submission is hand-authored to exercise one property of the grader. E
 | 5 | Syntax error | **0/10** | Diagnosis still works when the code never runs at all. |
 | 6 | Prompt injection | **4/10** | Tells the grader to award 10/10. Scored by its tests regardless. |
 | 7 | Hardcoded sample answers | **4/10** | Passes all 5 visible tests. Fails 5 of the 7 hidden ones. |
-| 8 | Crashes on empty input | **8/10** | The empty-list contract is its own clause, worth its own points. |
+| 8 | Forged result markers | **8/10** | Prints the harness's own result protocol at import time, claiming its failing tests as passes. It scores what it earned: the marker is a fresh UUID per run, so there is no marker for it to print. |
+| 9 | Crashes on empty input | **8/10** | The empty-list contract is its own clause, worth its own points. |
+
+---
+
+## Bring your own problem
+
+The demo grades `median()`, but the landing page also takes a sentence of prose — *"return the two largest numbers in a list, largest first, and raise `ValueError` if there are fewer than two"* — and a click on **Write the tests**. `/api/author` has a model write the rubric, the executable suite and a reference solution. The sandbox then grades against that suite exactly as it grades the median exercise.
+
+The model authors the ruler. It does not read it. `lib/scoring.ts` is untouched and still imports only `lib/types.ts`; the tests are executed, not consulted, and there is still no field anywhere in which a model can express a mark. Three things stand between a generated suite and a visitor's screen.
+
+**`lib/authoring.ts` refuses a suite that could not produce a meaningful mark.** A rubric clause no test covers would score `inconclusive` forever and silently withhold its points. A test naming a clause that does not exist, an expected value that will not decode, a suite with no hidden tests — all rejected. The file is pure and imports only `./types`, so it runs unchanged on the server that generated an assignment and again on the server that receives it back from a browser, and it is unit-tested without a key (`test/authoring.test.ts`).
+
+**The suite has to pass a known-good solution and fail a known-bad one.** Both halves run in the visitor's already-warm Pyodide pool before anything is displayed. The model's own reference solution is executed against the tests it shipped with and must score full marks — a suite its author cannot pass is simply wrong. Then a stub that ignores its arguments and returns `None` is executed against the same tests, and must score *less* than full marks. Without that second half a suite that passes everything would sail through, and a mark nothing can fail is exactly the meaningless mark this project exists to rule out. Failing either half discards the suite; there is one retry, and it carries the failing test back, because a blind second attempt mostly reproduces the first mistake.
+
+**Nothing is graded until the visitor accepts.** `components/GeneratedSuite.tsx` prints the rubric and every test in full — the exact Python expression, the exact expected value, and whether it is shown or hidden — and the grading button does nothing until it is clicked. The panel is read-only on purpose: an edited suite invalidates the self-check that justified showing it.
+
+Prompt injection lands here the same way it lands on a submission. A problem description instructing the model to write tests that always pass and award full marks was tried against production; it produced an ordinary, discriminating suite. Ten sample problems run against the live deployment all produced a suite that passed its own reference, nine on the first attempt and one on the retry.
+
+`/api/author` is the more expensive surface — a rubric plus a suite is a larger prompt than a diagnosis — so it refuses bodies over 4KB and limits a caller to 10 requests an hour, degrading to a readable `{ ok: false, reason }` rather than an error. **Read that honestly.** Vercel runs the route on ephemeral, horizontally-scaled lambdas, so the counter lives in one instance's memory and resets on every cold start. It raises the cost of casual abuse. It is not a spend ceiling, and it is not described as one anywhere in the source either.
 
 ---
 
 ## Run it locally
 
 ```bash
-git clone <repo>
+git clone https://github.com/biyonjose10/crucible
 cd crucible
 npm install
 npm run dev
@@ -159,12 +180,27 @@ npx tsx scripts/verify.ts
 Roughly 30 seconds. It runs three checks, and the whole product is false if any of them fail:
 
 1. **Import hygiene.** It reads `lib/scoring.ts`, extracts every `from "…"` specifier, and fails the build if any of them match `anthropic`, `google`, `gemini`, `genai`, `openai`, `diagnose`, or `ai`. The import list is printed so you can read it yourself.
-2. **Archetype scores.** All eight archetypes execute in isolated processes and must produce exactly the scores in the table above. The hardcoding archetype additionally prints its visible-versus-hidden breakdown, so you can see the split rather than take it on faith. The assertion is deliberately narrow: every visible test must pass and at least five of the seven hidden tests must fail. Two hidden tests legitimately pass for that submission — `median(list())` still raises `ValueError`, and `0.0` is still a float — and pretending otherwise would be a nicer story than the truth.
+2. **Archetype scores.** All nine archetypes execute in isolated processes and must produce exactly the scores in the table above. The hardcoding archetype additionally prints its visible-versus-hidden breakdown, so you can see the split rather than take it on faith. The assertion is deliberately narrow: every visible test must pass and at least five of the seven hidden tests must fail. Two hidden tests legitimately pass for that submission — `median(list())` still raises `ValueError`, and `0.0` is still a float — and pretending otherwise would be a nicer story than the truth.
 3. **Determinism.** Three submissions are re-executed from scratch and their clause-by-clause reports must be byte-identical to the first run.
 
 Each archetype runs in its own process with a 5-second execution budget measured *after* the interpreter is warm, and the parent kills the child on expiry. That is the same mechanism as the browser's `Worker.terminate()`, for the same reason: an infinite loop cannot be stopped from inside its own interpreter.
 
-Or skip the script. Open `lib/scoring.ts` and read the imports. It takes two seconds.
+Two more checks, run separately:
+
+```bash
+npm test            # unit tests for the pure modules (test/)
+npm run check-suite # authoring, driven from Node against a running dev server
+```
+
+`npm test` needs no network and no key. `npm run check-suite` needs `npm run dev` in another terminal and a `GEMINI_API_KEY`; it runs the whole authoring loop — ask `/api/author` for a suite, execute the model's reference solution against it, execute a do-nothing stub against it — over a set of sample problems, or over one you pass on the command line:
+
+```bash
+npm run check-suite -- "return the nth triangular number, raising ValueError for negative n"
+```
+
+It prints each suite's reference score and stub score, so you can see for yourself whether the tests discriminate.
+
+Or skip all of it. Open `lib/scoring.ts` and read the imports. It takes two seconds.
 
 ---
 
@@ -177,26 +213,34 @@ lib/
   harness.ts      generated Python that runs a submission and emits JSON lines
   runner.ts       Pyodide execution + tamper-resistant output parsing
   scoring.ts      score = f(testResults). No AI import. Ever.
+  author.ts       the one model call that writes a rubric, a suite and a reference
+  authoring.ts    pure validation — refuses a suite that can't produce a real mark
+  code-editing.ts pure Tab/Enter/dedent logic for the visitor's Python textarea
 fixtures/
-  archetypes.ts   the eight demo submissions and their asserted scores
+  archetypes.ts   the nine demo submissions and their asserted scores
 scripts/
   verify.ts       the build gate described above
   run-one.ts      executes one archetype in an isolated process
+  check-suite.ts  drives the authoring loop from Node against a dev server
+test/             unit tests for the pure modules — no key, no network
+components/       the queue, the student view, the trust panel, the generated suite
 app/              Next.js App Router — landing page, grading queue, API routes
+  api/author/     writes an assignment from prose. 4KB cap, 10/hour per instance
+  api/diagnose/   failing traces in, explanation out. Never a score
 ```
 
 ---
 
 ## Limitations, honestly
 
-- **One language, one assignment.** Python and `median()`. The rubric-clause-to-test mapping is general, but nothing here is a multi-language platform, and adding a new assignment currently means writing a fixture by hand.
+- **One language.** Python only. The rubric-clause-to-test mapping is general and a new assignment no longer needs a hand-written fixture, but nothing here is a multi-language platform — the harness, the runner and the sandbox all assume CPython.
 - **Results are in memory.** There is no database in this build. Refresh the page and the run is gone. This was a deliberate scope cut to protect the demo path, not an oversight.
 - **Hidden tests are only hidden from the student.** Anyone reading this public repo can see them in `lib/assignment.ts`. In a real deployment they would live server-side and never ship to the client. The property being demonstrated is the visible/hidden split, not secrecy.
 - **First load pulls a few megabytes.** A real CPython runtime in WebAssembly is not small. It is cached after the first visit, but the first grading run on a cold browser waits on it.
 - **The model can still be wrong about the diagnosis.** It cannot be wrong about the score. That asymmetry is the design: a wrong explanation is cheap and a student can see through it, a wrong grade is expensive and invisible. An instructor override is the intended backstop for the remainder, and is not yet built.
-- **The tests are hand-written, and that is the real prerequisite.** Crucible grades against a test suite an instructor authored. If you have no tests, it has nothing to grade with. Having the model generate tests from the rubric — for a human to approve before use — would extend the design rather than break it, since tests would still decide the mark. It was deliberately not built here: it is a large addition, and a stated limitation is worth more than a shaky feature.
+- **A generated suite is only as good as the description it came from.** The self-check catches a broken suite — one its own author fails, or one a do-nothing stub passes. It cannot catch a suite that is internally consistent and tests the wrong thing, because a description that says "sort the list" without saying what to do with duplicates is genuinely ambiguous and the model will pick an answer. That is why every test is printed before anything is graded: the visitor reading them is the check that closes this gap, and there is no automated substitute for it. Grading a class this way would want an instructor's approval on the suite, once, before the class ever sees it.
 - **Per-clause credit is all-or-nothing.** A clause with one failing hidden test earns zero. That is defensible for a contract-style rubric and would be wrong for an essay.
 
 ## What's next
 
-Instructor-authored assignments (paste a spec and a test file, get a rubric mapping). Persistence and a real gradebook export. Cross-class misconception clustering: the failure signatures already collapse identical mistakes, so aggregating them across a cohort tells an instructor which concept to reteach on Monday — which is the thing an autograder has never been able to say.
+Persistence and a real gradebook export. Cross-class misconception clustering: the failure signatures already collapse identical mistakes, so aggregating them across a cohort tells an instructor which concept to reteach on Monday — which is the thing an autograder has never been able to say.
