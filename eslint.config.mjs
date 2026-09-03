@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored CPython/WASM build copied in by the prebuild step. Third-party
+    // and unreadable by design; linting it buried our own 3 findings under
+    // 5,400 warnings.
+    "public/pyodide/**",
   ]),
 ]);
 

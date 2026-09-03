@@ -53,6 +53,11 @@ export default function Error({
         >
           Try again
         </button>
+        {/* A plain anchor, deliberately. This renders only after the React
+            tree has already crashed, and <Link> would attempt a client-side
+            navigation inside that broken tree. A full page load is the whole
+            point of the escape hatch. */}
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
         <a
           href="/"
           className="rounded-lg border border-line px-4 py-2.5 font-mono text-[12px] text-muted

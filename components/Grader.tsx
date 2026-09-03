@@ -460,8 +460,13 @@ export function Grader({
               transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
               className="pt-24 pb-16"
             >
+              {/* Names the product, not the sample problem. This used to read
+                  MEDIAN.title, which announced "Implement median()" as the
+                  first line on the page and read as a one-exercise toy - the
+                  authoring flow grades any function you can describe. The
+                  sample is still named on the button below it. */}
               <p className="font-mono text-xs tracking-widest text-faint uppercase">
-                {MEDIAN.title}
+                Grades any Python function
               </p>
               <h1 className="mt-5 text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.08] max-w-2xl">
                 The AI code grader that cannot set the grade.

@@ -206,6 +206,9 @@ export class GraderPool {
 
     return new Promise<ExecutionOutcome>((resolve) => {
       let settled = false;
+      // Declared before it is assigned so `finish`, defined below, can close
+      // over it and clear it. prefer-const cannot see that ordering.
+      // eslint-disable-next-line prefer-const
       let timer: ReturnType<typeof setTimeout>;
 
       const finish = (inconclusive?: ExecutionOutcome["inconclusive"]) => {

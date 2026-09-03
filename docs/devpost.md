@@ -78,7 +78,11 @@ And the honest caveat, since we would rather say it than have it asked: the mode
 
 Next.js 16 App Router with React 19, TypeScript, and Tailwind 4 — a single deployment, no separate backend service.
 
-Execution is **Pyodide**: real CPython 3.14 compiled to WebAssembly, running in a Web Worker and self-hosted from `/public/pyodide`. A generated Python harness runs each submission and emits one JSON line per test result, flushed immediately so that results produced before a kill survive it. The parser accepts a line only if it carries an internal marker *and* names a test id the suite actually declared, so a student printing to stdout cannot forge a passing result. The module cache is cleared between submissions, because a stale import would silently grade the previous student's code.
+Execution is **Pyodide**: real CPython 3.14 compiled to WebAssembly, running in a Web Worker and self-hosted from `/public/pyodide`. The module cache is cleared between submissions, because a stale import would silently grade the previous student's code.
+
+**Python never reports a result. It only produces a value.** An earlier design had the harness print one JSON line per test and had JavaScript parse those lines. That was breakable, and we broke it: student code is imported before the tests run, and the harness executed in `pyodide.globals` — which *is* `sys.modules['__main__'].__dict__`. So a submission could reach into the grader's own namespace and rewrite the comparison function. One line, `sys.modules['__main__'].__dict__['_same'] = lambda got, expected: True`, scored **10/10 for code worth 8/10**, with the smoking gun in the output: `expected 2.5, got 3.0, status pass`.
+
+Patching that inside Python is a losing game — a private namespace is still reachable through `sys._getframe`, `gc.get_objects()` or `sys.settrace`. So the decision moved out of Python entirely. The worker now evaluates each test expression and passes the resulting **value** across the WebAssembly boundary; JavaScript does the comparing and the scoring. There is no stdout protocol left to forge and no comparison function left to overwrite, because neither exists on the Python side any more. `npm run check-worker` is the regression test, and the attacks are archetypes in the build gate.
 
 Diagnosis uses the Google Gemini API. The prompt receives the rubric clause, the failing test, and the raw traceback. It does not receive the score, because there is no code path that would give it one.
 
